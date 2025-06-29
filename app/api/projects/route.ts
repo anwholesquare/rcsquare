@@ -75,6 +75,13 @@ export async function GET(request: NextRequest) {
                 captions: true,
                 persons: true
               }
+            },
+            transcription: {
+              include: {
+                segments: {
+                  orderBy: { segmentIndex: 'asc' }
+                }
+              }
             }
           } as any
         }

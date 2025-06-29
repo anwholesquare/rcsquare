@@ -23,6 +23,7 @@ interface Video {
   createdAt: string
   updatedAt: string
   frameAnalysis?: FrameAnalysis
+  transcription?: Transcription
 }
 
 interface FrameAnalysis {
@@ -60,6 +61,33 @@ interface Person {
   clipEmbedding?: string
 }
 
+interface Transcription {
+  id: string
+  videoId: string
+  status: string
+  model: string
+  language?: string
+  totalSegments?: number
+  totalDuration?: number
+  processedAt?: string
+  errorMessage?: string
+  segments: TranscriptionSegment[]
+}
+
+interface TranscriptionSegment {
+  id: string
+  transcriptionId: string
+  segmentIndex: number
+  startingTimestamp: string
+  endingTimestamp: string
+  startSeconds: number
+  endSeconds: number
+  transcription: string
+  refinedTranscription?: string
+  confidence?: number
+  isEdited: boolean
+}
+
 interface Project {
   id: string
   name: string
@@ -86,7 +114,17 @@ export function VideoList({ projectName }: VideoListProps) {
   const [visibleFrames, setVisibleFrames] = useState(12)
   const [visibleCaptions, setVisibleCaptions] = useState(8)
   const [visiblePersons, setVisiblePersons] = useState(16)
-  const [activeTab, setActiveTab] = useState<'frames' | 'captions' | 'persons'>('frames')
+  const [activeTab, setActiveTab] = useState<'frames' | 'captions' | 'persons' | 'transcription'>('frames')
+  
+  // Transcription state
+  const [transcribingVideos, setTranscribingVideos] = useState<Set<string>>(new Set())
+  const [showTranscriptionDetails, setShowTranscriptionDetails] = useState<string | null>(null)
+  const [transcriptionData, setTranscriptionData] = useState<Transcription | null>(null)
+  const [editingSegment, setEditingSegment] = useState<TranscriptionSegment | null>(null)
+  const [editingSegmentText, setEditingSegmentText] = useState('')
+  const [transcriptionSettings, setTranscriptionSettings] = useState<{ [key: string]: { refineWithLlm: boolean, model: string } }>({})
+  const [visibleSegments, setVisibleSegments] = useState(20)
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false)
 
   // Placeholder images as data URIs
   const placeholderImage = "data:image/svg+xml;base64," + btoa(`
@@ -116,8 +154,12 @@ export function VideoList({ projectName }: VideoListProps) {
     </svg>
   `)
 
-  const fetchVideos = async () => {
-    setIsLoading(true)
+  const fetchVideos = async (isAutoRefresh = false) => {
+    if (!isAutoRefresh) {
+      setIsLoading(true)
+    } else {
+      setIsAutoRefreshing(true)
+    }
     setError(null)
 
     try {
@@ -129,9 +171,15 @@ export function VideoList({ projectName }: VideoListProps) {
 
       setProject(response.data.project)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load videos')
+      if (!isAutoRefresh) {
+        setError(err.response?.data?.error || 'Failed to load videos')
+      }
     } finally {
-      setIsLoading(false)
+      if (!isAutoRefresh) {
+        setIsLoading(false)
+      } else {
+        setIsAutoRefreshing(false)
+      }
     }
   }
 
@@ -140,6 +188,30 @@ export function VideoList({ projectName }: VideoListProps) {
       fetchVideos()
     }
   }, [projectName])
+
+  // Auto-refresh for processing states (less frequent to reduce flickering)
+  useEffect(() => {
+    const hasProcessingAnalysis = project?.videos.some(video => 
+      video.frameAnalysis?.status === 'processing' || extractingFrames.has(video.id)
+    )
+    const hasProcessingTranscription = project?.videos.some(video => 
+      video.transcription?.status === 'processing' || transcribingVideos.has(video.id)
+    )
+
+    if (hasProcessingAnalysis || hasProcessingTranscription) {
+      const interval = setInterval(async () => {
+        // Silent refresh - don't show loading state to avoid flickering
+        try {
+          await fetchVideos(true) // Pass true to indicate auto-refresh
+        } catch (error) {
+          // Silently handle errors during auto-refresh
+          console.log('Auto-refresh error:', error)
+        }
+      }, 10000) // Refresh every 10 seconds (reduced frequency)
+
+      return () => clearInterval(interval)
+    }
+  }, [project, extractingFrames, transcribingVideos])
 
   const handleEdit = (video: Video) => {
     setEditingVideo(video)
@@ -269,6 +341,125 @@ export function VideoList({ projectName }: VideoListProps) {
     }))
   }
 
+  // Transcription handlers
+  const handleTranscribeVideo = async (videoId: string) => {
+    const settings = transcriptionSettings[videoId] || { refineWithLlm: true, model: 'whisper-base' }
+    setTranscribingVideos(prev => new Set([...prev, videoId]))
+    
+    try {
+      const response = await axios.post('http://localhost:3001/api/transcribe-video', {
+        videoId,
+        projectName,
+        model: settings.model,
+        refineWithLlm: settings.refineWithLlm
+      }, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+      
+      if (response.data.success) {
+        // Refresh video list to get updated transcription
+        setTimeout(() => {
+          fetchVideos()
+        }, 2000) // Give some time for processing to start
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to start transcription')
+    } finally {
+      setTranscribingVideos(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(videoId)
+        return newSet
+      })
+    }
+  }
+
+  const handleShowTranscriptionDetails = async (transcriptionId: string) => {
+    setShowTranscriptionDetails(transcriptionId)
+    
+    try {
+      const response = await axios.get(`http://localhost:3001/api/transcription/${transcriptionId}`, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+      
+      if (response.data.transcription) {
+        setTranscriptionData(response.data.transcription)
+      }
+    } catch (err: any) {
+      setError('Failed to load transcription details')
+    }
+  }
+
+  const handleEditSegment = (segment: TranscriptionSegment) => {
+    setEditingSegment(segment)
+    setEditingSegmentText(segment.refinedTranscription || segment.transcription)
+  }
+
+  const handleSaveSegmentEdit = async () => {
+    if (!editingSegment) return
+
+    try {
+      await axios.put('http://localhost:3001/api/transcription-segments', {
+        id: editingSegment.id,
+        refinedTranscription: editingSegmentText,
+        isEdited: true
+      }, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+
+      // Update local transcription data
+      if (transcriptionData) {
+        const updatedSegments = transcriptionData.segments.map(seg => 
+          seg.id === editingSegment.id 
+            ? { ...seg, refinedTranscription: editingSegmentText, isEdited: true }
+            : seg
+        )
+        setTranscriptionData({ ...transcriptionData, segments: updatedSegments })
+      }
+
+      setEditingSegment(null)
+      setEditingSegmentText('')
+    } catch (err: any) {
+      setError('Failed to save segment edit')
+    }
+  }
+
+  const updateTranscriptionSettings = (videoId: string, settings: { refineWithLlm: boolean, model: string }) => {
+    setTranscriptionSettings(prev => ({
+      ...prev,
+      [videoId]: settings
+    }))
+  }
+
+  const exportTranscriptionAsJson = (transcription: Transcription) => {
+    const exportData = {
+      video_id: transcription.videoId,
+      language: transcription.language,
+      model: transcription.model,
+      total_duration: transcription.totalDuration,
+      captions: transcription.segments.map(segment => ({
+        starting_timestamp: segment.startingTimestamp,
+        ending_timestamp: segment.endingTimestamp,
+        transcription: segment.refinedTranscription || segment.transcription
+      }))
+    }
+    
+    const dataStr = JSON.stringify(exportData, null, 2)
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+    
+    const exportFileDefaultName = `transcription_${transcription.videoId}.json`
+    
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('href', dataUri)
+    linkElement.setAttribute('download', exportFileDefaultName)
+    linkElement.click()
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
@@ -335,7 +526,7 @@ export function VideoList({ projectName }: VideoListProps) {
         <p className="text-sm text-muted-foreground mb-4">
           Upload your first video to get started
         </p>
-        <Button onClick={fetchVideos} variant="outline" size="sm">
+        <Button onClick={() => fetchVideos()} variant="outline" size="sm">
           <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
@@ -349,13 +540,13 @@ export function VideoList({ projectName }: VideoListProps) {
         <p className="text-sm text-muted-foreground">
           {project.videos.length} video{project.videos.length === 1 ? '' : 's'}
         </p>
-        <Button onClick={fetchVideos} variant="outline" size="sm">
+        <Button onClick={() => fetchVideos()} variant="outline" size="sm">
           <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 transition-all duration-300 ease-in-out">
         {project.videos.map((video) => {
           const isPlaying = playingVideos.has(video.id)
           
@@ -542,24 +733,229 @@ export function VideoList({ projectName }: VideoListProps) {
                           onChange={(e) => updateFrameSampling(video.id, parseInt(e.target.value))}
                           className="w-16 h-6 text-xs"
                         />
-                        <Button
-                          size="sm"
-                          onClick={() => handleExtractFrames(video.id)}
-                          disabled={extractingFrames.has(video.id)}
-                          className="text-xs h-6"
-                        >
-                          {extractingFrames.has(video.id) ? (
-                            <>
+                        {extractingFrames.has(video.id) ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                                                             <span>Extracting frames (1 every {frameExtractionSettings[video.id] || 5}s)...</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                              <div className="bg-green-600 h-1.5 rounded-full animate-pulse" style={{ width: '45%' }}></div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Analyzing video content • Please wait
+                            </p>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleExtractFrames(video.id)}
+                            disabled={extractingFrames.has(video.id)}
+                            className="text-xs h-6"
+                          >
+                            <Camera className="h-3 w-3 mr-1" />
+                            Extract Frames
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Audio Transcription Section */}
+                <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4" />
+                    Audio Transcription
+                  </h4>
+                  
+                  {video.transcription ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(video.transcription.status)}
+                        {video.transcription.totalSegments && (
+                          <span className="text-xs text-muted-foreground">
+                            {video.transcription.totalSegments} segments
+                          </span>
+                        )}
+                        {video.transcription.language && (
+                          <span className="text-xs text-muted-foreground">
+                            • {video.transcription.language}
+                          </span>
+                        )}
+                        {/* {video.transcription.totalDuration && (
+                          <span className="text-xs text-muted-foreground">
+                            • {Math.round(video.transcription.totalDuration)}s
+                          </span>
+                        )} */}
+                      </div>
+                      
+                      {video.transcription.status === 'completed' && (
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleShowTranscriptionDetails(video.transcription!.id)}
+                            className="text-xs h-6"
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            View Segments ({video.transcription.totalSegments})
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => exportTranscriptionAsJson(video.transcription!)}
+                            className="text-xs h-6"
+                          >
+                            <FileText className="h-3 w-3 mr-1" />
+                            Export JSON
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {video.transcription.status !== 'processing' && (
+                        <div className="space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor={`llm-refine-${video.id}`} className="text-xs whitespace-nowrap">
+                                Refine with LLM:
+                              </Label>
+                              <input
+                                id={`llm-refine-${video.id}`}
+                                type="checkbox"
+                                checked={transcriptionSettings[video.id]?.refineWithLlm ?? true}
+                                onChange={(e) => updateTranscriptionSettings(video.id, {
+                                  ...transcriptionSettings[video.id],
+                                  refineWithLlm: e.target.checked,
+                                  model: transcriptionSettings[video.id]?.model || 'whisper-base'
+                                })}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor={`model-${video.id}`} className="text-xs whitespace-nowrap">
+                                Model:
+                              </Label>
+                              <select
+                                id={`model-${video.id}`}
+                                value={transcriptionSettings[video.id]?.model || 'whisper-base'}
+                                onChange={(e) => updateTranscriptionSettings(video.id, {
+                                  ...transcriptionSettings[video.id],
+                                  refineWithLlm: transcriptionSettings[video.id]?.refineWithLlm ?? true,
+                                  model: e.target.value
+                                })}
+                                className="text-xs border rounded px-1 h-6 bg-background"
+                              >
+                                <option value="whisper-base">Base</option>
+                                <option value="whisper-small">Small</option>
+                                <option value="whisper-medium">Medium</option>
+                              </select>
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => handleTranscribeVideo(video.id)}
+                            disabled={transcribingVideos.has(video.id)}
+                            className="text-xs h-6 w-full sm:w-auto"
+                          >
+                            {transcribingVideos.has(video.id) ? (
                               <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Camera className="h-3 w-3 mr-1" />
-                              Extract Frames
-                            </>
-                          )}
-                        </Button>
+                            ) : (
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                            )}
+                            {video.transcription.status === 'completed' ? 'Regenerate' : 'Retry'}
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {video.transcription.status === 'processing' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>Transcribing audio with {video.transcription.model}...</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                            <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Processing audio • This may take a few minutes
+                          </p>
+                        </div>
+                      )}
+                      
+                      {video.transcription.status === 'failed' && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-red-500">
+                            Transcription failed: {video.transcription.errorMessage}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Transcribe audio using Whisper AI with optional LLM refinement
+                      </p>
+                      <div className="space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`llm-refine-${video.id}`} className="text-xs whitespace-nowrap">
+                              Refine with LLM:
+                            </Label>
+                            <input
+                              id={`llm-refine-${video.id}`}
+                              type="checkbox"
+                              checked={transcriptionSettings[video.id]?.refineWithLlm ?? true}
+                              onChange={(e) => updateTranscriptionSettings(video.id, {
+                                ...transcriptionSettings[video.id],
+                                refineWithLlm: e.target.checked,
+                                model: transcriptionSettings[video.id]?.model || 'whisper-base'
+                              })}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`model-${video.id}`} className="text-xs whitespace-nowrap">
+                              Model:
+                            </Label>
+                            <select
+                              id={`model-${video.id}`}
+                              value={transcriptionSettings[video.id]?.model || 'whisper-base'}
+                              onChange={(e) => updateTranscriptionSettings(video.id, {
+                                ...transcriptionSettings[video.id],
+                                refineWithLlm: transcriptionSettings[video.id]?.refineWithLlm ?? true,
+                                model: e.target.value
+                              })}
+                              className="text-xs border rounded px-1 h-6 bg-background"
+                            >
+                              <option value="whisper-base">Base</option>
+                              <option value="whisper-small">Small</option>
+                              <option value="whisper-medium">Medium</option>
+                            </select>
+                          </div>
+                        </div>
+                        {transcribingVideos.has(video.id) ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Transcribing audio...</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                              <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Processing audio • This may take a few minutes
+                            </p>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleTranscribeVideo(video.id)}
+                            disabled={transcribingVideos.has(video.id)}
+                            className="text-xs h-6 w-full sm:w-auto"
+                          >
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            Transcribe Audio
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -579,8 +975,8 @@ export function VideoList({ projectName }: VideoListProps) {
 
       {/* Edit Dialog */}
       {editingVideo && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto mx-2 sm:mx-0">
             <CardHeader>
               <CardTitle>Edit Video</CardTitle>
               <CardDescription>
@@ -904,6 +1300,180 @@ export function VideoList({ projectName }: VideoListProps) {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Transcription Details Dialog */}
+      {showTranscriptionDetails && transcriptionData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
+          <Card className="w-full max-w-6xl max-h-[95vh] overflow-hidden shadow-2xl mx-2 sm:mx-0">
+            <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950 p-3 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="text-lg sm:text-2xl flex items-center gap-2 sm:gap-3">
+                    <div className="p-1.5 sm:p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                      <MessageSquare className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <span className="truncate">Audio Transcription</span>
+                  </CardTitle>
+                  <CardDescription className="mt-2 flex flex-wrap gap-1 sm:gap-2">
+                    <Badge variant="outline" className="bg-white/50 text-xs">
+                      <MessageSquare className="h-2 w-2 sm:h-3 sm:w-3 mr-1" />
+                      {transcriptionData.model}
+                    </Badge>
+                    <Badge variant="outline" className={`text-xs ${transcriptionData.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+                      {transcriptionData.status}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white/50 text-xs">
+                      {transcriptionData.language || 'Unknown'}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white/50 text-xs">
+                      {transcriptionData.totalSegments || 0} segments
+                    </Badge>
+                    {/* {transcriptionData.totalDuration && (
+                      <Badge variant="outline" className="bg-white/50 text-xs">
+                        {Math.round(transcriptionData.totalDuration)}s
+                      </Badge>
+                    )} */}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => exportTranscriptionAsJson(transcriptionData)}
+                    className="text-xs"
+                  >
+                    <FileText className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">Export JSON</span>
+                    <span className="sm:hidden">Export</span>
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => {
+                      setShowTranscriptionDetails(null)
+                      setTranscriptionData(null)
+                      setVisibleSegments(20)
+                      setEditingSegment(null)
+                    }}
+                    className="h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            
+            <CardContent className="overflow-y-auto max-h-[calc(95vh-12rem)] p-3 sm:p-6">
+              <div className="space-y-3 sm:space-y-4">
+                {transcriptionData.segments && transcriptionData.segments.length > 0 ? (
+                  <>
+                    <div className="space-y-2 sm:space-y-3">
+                      {transcriptionData.segments.slice(0, visibleSegments).map((segment, index) => (
+                        <Card key={segment.id} className="overflow-hidden hover:shadow-md transition-all duration-200 border-slate-200 dark:border-slate-700">
+                          <CardContent className="p-3 sm:p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                              <div className="flex flex-wrap items-center gap-1 sm:gap-2 min-w-0">
+                                <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
+                                  #{index + 1}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs font-mono truncate max-w-[160px] sm:max-w-none">
+                                  {segment.startingTimestamp} - {segment.endingTimestamp}
+                                </Badge>
+                                {segment.isEdited && (
+                                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300">
+                                    Edited
+                                  </Badge>
+                                )}
+                                {segment.confidence && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {Math.round(segment.confidence * 100)}%
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditSegment(segment)}
+                                className="text-xs h-6 w-full sm:w-auto shrink-0"
+                              >
+                                <Edit3 className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                            </div>
+                            
+                            {editingSegment?.id === segment.id ? (
+                              <div className="space-y-3">
+                                <Textarea
+                                  value={editingSegmentText}
+                                  onChange={(e) => setEditingSegmentText(e.target.value)}
+                                  className="min-h-[80px] text-sm"
+                                  placeholder="Edit transcription text..."
+                                />
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingSegment(null)
+                                      setEditingSegmentText('')
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={handleSaveSegmentEdit}
+                                  >
+                                    Save
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 p-3 rounded-lg">
+                                  <strong>Refined:</strong> {segment.refinedTranscription || segment.transcription}
+                                </div>
+                                {segment.refinedTranscription && segment.refinedTranscription !== segment.transcription && (
+                                  <div className="text-xs leading-relaxed text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 p-2 rounded border">
+                                    <strong>Original:</strong> {segment.transcription}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                    
+                    {transcriptionData.segments.length > visibleSegments && (
+                      <div className="text-center">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setVisibleSegments(prev => prev + 20)}
+                          className="bg-gradient-to-r from-blue-50 to-green-50 hover:from-blue-100 hover:to-green-100 dark:from-blue-950 dark:to-green-950 border-blue-200 dark:border-blue-800"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Load More ({transcriptionData.segments.length - visibleSegments} remaining)
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
+                      <MessageSquare className="h-8 w-8 text-slate-400" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-2">No transcription segments found</h3>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      The transcription is still processing or encountered an error.
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>

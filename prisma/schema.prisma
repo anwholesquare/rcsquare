@@ -39,6 +39,9 @@ model Video {
   // Frame analysis data
   frameAnalysis VideoFrameAnalysis?
   
+  // Transcription data
+  transcription VideoTranscription?
+  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("videos")
@@ -101,4 +104,43 @@ model VideoPerson {
   analysis      VideoFrameAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@map("video_persons")
+}
+
+model VideoTranscription {
+  id             String   @id @default(cuid())
+  videoId        String   @unique
+  status         String   @default("pending") // pending, processing, completed, failed
+  model          String   @default("whisper-base") // transcription model used
+  language       String?  // detected/specified language
+  totalSegments  Int?
+  totalDuration  Float?   // total audio duration in seconds
+  processedAt    DateTime?
+  errorMessage   String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  segments       VideoTranscriptionSegment[]
+
+  @@map("video_transcriptions")
+}
+
+model VideoTranscriptionSegment {
+  id                 String   @id @default(cuid())
+  transcriptionId    String
+  segmentIndex       Int      // order of segment in the transcription
+  startingTimestamp  String   // format: "HH.MM.SS"
+  endingTimestamp    String   // format: "HH.MM.SS"
+  startSeconds       Float    // start time in seconds for easier querying
+  endSeconds         Float    // end time in seconds for easier querying
+  transcription      String   @db.Text // original transcription
+  refinedTranscription String? @db.Text // LLM-refined transcription
+  confidence         Float?   // confidence score from Whisper
+  isEdited           Boolean  @default(false) // whether user has manually edited
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  videoTranscription VideoTranscription @relation(fields: [transcriptionId], references: [id], onDelete: Cascade)
+
+  @@map("video_transcription_segments")
 }

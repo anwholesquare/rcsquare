@@ -3,6 +3,10 @@ from flask_cors import CORS
 import os
 import json
 import yt_dlp
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from werkzeug.utils import secure_filename
 import ffmpeg
 from datetime import datetime
@@ -24,6 +28,10 @@ import time
 import threading
 import logging
 import os
+import whisper
+from pydub import AudioSegment
+import tempfile
+from openai import OpenAI
 
 # Suppress MediaPipe warnings and TensorFlow logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -41,11 +49,27 @@ ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
 SECURITY_KEY = "123_RAGISACTIVATED_321"
 NEXTJS_API_BASE = "http://localhost:3000/api"
 
+# OpenAI Configuration (optional - for text refinement)
+# Set your OpenAI API key in environment variable: OPENAI_API_KEY
+openai_client = None
+try:
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_key and openai_api_key.strip() and openai_api_key != "your-openai-api-key-here":
+        openai_client = OpenAI(api_key=openai_api_key)
+        print("✅ OpenAI client initialized for text refinement")
+    else:
+        print("⚠️ OpenAI API key not found - text refinement will be skipped")
+        print("   Set OPENAI_API_KEY in your .env file to enable LLM text refinement")
+except Exception as e:
+    print(f"❌ OpenAI client initialization failed: {e}")
+    print("   Text refinement will be disabled")
+
 # AI Models Configuration
 # Initialize models as None - they will be loaded on demand
 print("AI models will be loaded on demand to speed up startup...")
-clip_model = clip_processor = caption_processor = caption_model = sentence_model = None
+clip_model = clip_processor = caption_processor = caption_model = sentence_model = whisper_model = None
 models_loaded = False
+transcription_models_loaded = False
 
 def load_ai_models():
     """Load AI models with progress feedback"""
@@ -87,6 +111,36 @@ def load_ai_models():
         return False
     except Exception as e:
         print(f"   ❌ Error loading AI models: {e}")
+        print("   🌐 Check your internet connection")
+        print("   💾 Models will be cached after first download")
+        return False
+
+def load_transcription_models():
+    """Load transcription models with progress feedback"""
+    global whisper_model, transcription_models_loaded
+    
+    if transcription_models_loaded:
+        print("   ✅ Transcription models already loaded!")
+        return True
+    
+    try:
+        print("   📥 Loading Whisper model (audio transcription)...")
+        import time
+        start_time = time.time()
+        whisper_model = whisper.load_model("base")
+        elapsed = time.time() - start_time
+        print(f"   ✅ Whisper loaded in {elapsed:.1f}s")
+        
+        transcription_models_loaded = True
+        print("   🎉 Transcription models loaded successfully!")
+        return True
+        
+    except ImportError as e:
+        print(f"   ❌ Missing dependencies: {e}")
+        print("   💡 Try: pip install openai-whisper")
+        return False
+    except Exception as e:
+        print(f"   ❌ Error loading transcription models: {e}")
         print("   🌐 Check your internet connection")
         print("   💾 Models will be cached after first download")
         return False
@@ -414,6 +468,118 @@ def store_vector_data(collection_name, vectors_data):
         print(f"Error storing vector data in {collection_name}: {e}")
         return False
 
+def extract_audio_from_video(video_path, output_audio_path):
+    """Extract audio from video file"""
+    try:
+        print(f"🎵 Extracting audio from: {video_path}")
+        
+        # Use pydub to extract audio
+        video = AudioSegment.from_file(video_path)
+        video.export(output_audio_path, format="wav")
+        
+        if os.path.exists(output_audio_path):
+            print(f"✅ Audio extracted to: {output_audio_path}")
+            return True
+        else:
+            print("❌ Audio extraction failed")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error extracting audio: {e}")
+        return False
+
+def seconds_to_timestamp(seconds):
+    """Convert seconds to HH.MM.SS format"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}.{minutes:02d}.{secs:02d}"
+
+def transcribe_audio_with_whisper(audio_path):
+    """Transcribe audio using Whisper model"""
+    try:
+        if not whisper_model:
+            print("❌ Whisper model not loaded")
+            return None
+            
+        print(f"🎤 Transcribing audio with Whisper...")
+        result = whisper_model.transcribe(audio_path)
+        
+        segments = []
+        for i, segment in enumerate(result["segments"]):
+            # Convert timestamps to our format
+            start_timestamp = seconds_to_timestamp(segment["start"])
+            end_timestamp = seconds_to_timestamp(segment["end"])
+            
+            # Convert log probability to confidence score (0-1 range)
+            # avg_logprob is typically between -3.0 (low confidence) and -0.1 (high confidence)
+            avg_logprob = segment.get("avg_logprob", -1.0)
+            # Normalize to 0-1 range: higher (less negative) logprob = higher confidence
+            confidence = max(0.0, min(1.0, (avg_logprob + 3.0) / 3.0))
+            
+            segments.append({
+                "segment_index": i,
+                "starting_timestamp": start_timestamp,
+                "ending_timestamp": end_timestamp,
+                "start_seconds": segment["start"],
+                "end_seconds": segment["end"],
+                "transcription": segment["text"].strip(),
+                "confidence": confidence
+            })
+        
+        # Calculate total duration from segments (use the end time of the last segment)
+        total_duration = segments[-1]["end_seconds"] if segments else 0.0
+        
+        transcription_data = {
+            "language": result.get("language", "unknown"),
+            "total_duration": total_duration,
+            "segments": segments
+        }
+        
+        print(f"✅ Transcribed {len(segments)} segments")
+        return transcription_data
+        
+    except Exception as e:
+        print(f"❌ Error transcribing audio: {e}")
+        return None
+
+def refine_text_with_llm(text):
+    """Refine transcription text using OpenAI LLM"""
+    try:
+        if not openai_client:
+            print("⚠️ OpenAI client not available - skipping text refinement")
+            return text
+        
+        # Create a prompt for text refinement
+        prompt = f"""Please refine and improve the following transcribed text while preserving its original meaning and tone. 
+Fix any grammar errors, spelling mistakes, and improve clarity while maintaining the speaker's intended message.
+
+Original text: "{text}"
+
+Refined text:"""
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that improves transcribed text quality while preserving the original meaning and tone."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.3
+        )
+        
+        refined_text = response.choices[0].message.content.strip()
+        
+        # Remove quotes if they were added
+        if refined_text.startswith('"') and refined_text.endswith('"'):
+            refined_text = refined_text[1:-1]
+        
+        return refined_text
+        
+    except Exception as e:
+        print(f"⚠️ Error refining text with LLM: {e}")
+        return text  # Return original text if refinement fails
+
 @app.route('/')
 def hello_world():
     return '<h1>RCSquare Flask Backend</h1><p>Server is running! ✅</p>'
@@ -423,9 +589,12 @@ def ai_status():
     """Check AI models status"""
     return jsonify({
         'models_loaded': models_loaded,
+        'transcription_models_loaded': transcription_models_loaded,
         'clip_available': clip_model is not None,
         'blip_available': caption_model is not None,
-        'sentence_transformer_available': sentence_model is not None
+        'sentence_transformer_available': sentence_model is not None,
+        'whisper_available': whisper_model is not None,
+        'openai_available': openai_client is not None
     })
 
 @app.route('/api/load-models', methods=['POST'])
@@ -436,6 +605,16 @@ def load_models_endpoint():
         'success': success,
         'models_loaded': models_loaded,
         'message': 'Models loaded successfully' if success else 'Failed to load models'
+    })
+
+@app.route('/api/load-transcription-models', methods=['POST'])
+def load_transcription_models_endpoint():
+    """Manually trigger transcription model loading"""
+    success = load_transcription_models()
+    return jsonify({
+        'success': success,
+        'transcription_models_loaded': transcription_models_loaded,
+        'message': 'Transcription models loaded successfully' if success else 'Failed to load transcription models'
     })
 
 def create_video_record(project_name, title, description, tags, filename, original_url=None, file_size=None, duration=None):
@@ -1094,6 +1273,215 @@ def get_frame_analysis(analysis_id):
         
     except Exception as e:
         return jsonify({'error': f'Failed to get frame analysis: {str(e)}'}), 500
+
+@app.route('/api/transcribe-video', methods=['POST'])
+def transcribe_video_api():
+    """Transcribe video audio using Whisper and refine with LLM"""
+    data = request.get_json()
+    
+    if not data or 'videoId' not in data or 'projectName' not in data:
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    video_id = data['videoId']
+    project_name = data['projectName']
+    model_name = data.get('model', 'whisper-base')
+    refine_with_llm = data.get('refineWithLlm', True)
+    
+    security_key = request.headers.get('X-Security-Key')
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    try:
+        # Create transcription record in database
+        transcription_response = requests.post(f"{NEXTJS_API_BASE}/transcriptions", 
+            json={
+                'videoId': video_id,
+                'model': model_name,
+                'status': 'processing'
+            },
+            headers={'x-security-key': SECURITY_KEY}
+        )
+        
+        if transcription_response.status_code != 200:
+            return jsonify({'error': 'Failed to create transcription record'}), 500
+        
+        transcription_data = transcription_response.json()
+        transcription_id = transcription_data['transcription']['id']
+        
+        # Process transcription in background thread
+        def process_video_transcription():
+            try:
+                print(f"🚀 Starting transcription for video {video_id}")
+                
+                # Load transcription models if not already loaded
+                if not load_transcription_models():
+                    raise Exception("Failed to load transcription models")
+                
+                print(f"✅ Transcription models ready")
+                
+                # Find video file
+                video_filename = None
+                project_response = requests.get(f"{NEXTJS_API_BASE}/projects?name={project_name}",
+                    headers={'x-security-key': SECURITY_KEY}
+                )
+                
+                if project_response.status_code == 200:
+                    project_data = project_response.json()
+                    videos = project_data.get('project', {}).get('videos', [])
+                    
+                    for video in videos:
+                        if video['id'] == video_id:
+                            video_filename = video['filename']
+                            break
+                
+                if not video_filename:
+                    raise Exception("Video not found in database")
+                
+                video_path = os.path.join(project_name, 'videos', video_filename)
+                if not os.path.exists(video_path):
+                    raise Exception(f"Video file not found: {video_path}")
+                
+                print(f"📁 Processing video: {video_filename}")
+                
+                # Create temporary audio file
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+                    temp_audio_path = temp_audio.name
+                
+                try:
+                    # Extract audio from video
+                    if not extract_audio_from_video(video_path, temp_audio_path):
+                        raise Exception("Failed to extract audio from video")
+                    
+                    # Transcribe audio with Whisper
+                    print(f"🎤 Transcribing audio...")
+                    transcription_result = transcribe_audio_with_whisper(temp_audio_path)
+                    
+                    if not transcription_result:
+                        raise Exception("Failed to transcribe audio")
+                    
+                    segments = transcription_result['segments']
+                    language = transcription_result['language']
+                    total_duration = transcription_result['total_duration']
+                    
+                    print(f"✅ Transcribed {len(segments)} segments in {language}")
+                    
+                    # Refine transcriptions with LLM if requested
+                    if refine_with_llm and openai_client:
+                        print(f"🔍 Refining transcriptions with LLM...")
+                        
+                        for segment in segments:
+                            original_text = segment['transcription']
+                            refined_text = refine_text_with_llm(original_text)
+                            segment['refined_transcription'] = refined_text
+                            
+                            # Add a small delay to avoid rate limiting
+                            time.sleep(0.1)
+                    
+                    # Prepare data for database
+                    segment_data = []
+                    for segment in segments:
+                        segment_data.append({
+                            'transcriptionId': transcription_id,
+                            'segmentIndex': segment['segment_index'],
+                            'startingTimestamp': segment['starting_timestamp'],
+                            'endingTimestamp': segment['ending_timestamp'],
+                            'startSeconds': segment['start_seconds'],
+                            'endSeconds': segment['end_seconds'],
+                            'transcription': segment['transcription'],
+                            'refinedTranscription': segment.get('refined_transcription'),
+                            'confidence': segment.get('confidence', 0.0)
+                        })
+                    
+                    print(f"💾 Storing transcription segments in database...")
+                    
+                    # Store segments in database
+                    response = requests.post(f"{NEXTJS_API_BASE}/transcription-segments", 
+                        json={'segments': segment_data},
+                        headers={'x-security-key': SECURITY_KEY}
+                    )
+                    
+                    if response.status_code != 200:
+                        raise Exception(f"Failed to store segments: {response.status_code}")
+                    
+                    print(f"✅ Stored {len(segment_data)} transcription segments")
+                    
+                    # Update transcription status
+                    print(f"📊 Finalizing transcription...")
+                    response = requests.put(f"{NEXTJS_API_BASE}/transcriptions", 
+                        json={
+                            'id': transcription_id,
+                            'status': 'completed',
+                            'language': language,
+                            'totalSegments': len(segments),
+                            'totalDuration': total_duration,
+                            'processedAt': datetime.now().isoformat()
+                        },
+                        headers={'x-security-key': SECURITY_KEY}
+                    )
+                    
+                    if response.status_code == 200:
+                        print(f"🎉 Transcription completed successfully for video {video_id}")
+                        print(f"   📊 Summary: {len(segments)} segments, {language} language")
+                    else:
+                        print(f"⚠️  Transcription completed but failed to update status: {response.status_code}")
+                
+                finally:
+                    # Clean up temporary audio file
+                    if os.path.exists(temp_audio_path):
+                        os.unlink(temp_audio_path)
+                
+            except Exception as e:
+                print(f"❌ Error processing transcription for video {video_id}: {e}")
+                print(f"   Error type: {type(e).__name__}")
+                
+                # Update transcription status to failed
+                try:
+                    requests.put(f"{NEXTJS_API_BASE}/transcriptions", 
+                        json={
+                            'id': transcription_id,
+                            'status': 'failed',
+                            'errorMessage': str(e)
+                        },
+                        headers={'x-security-key': SECURITY_KEY}
+                    )
+                    print(f"🔄 Updated transcription status to failed")
+                except Exception as update_error:
+                    print(f"❌ Failed to update transcription status: {update_error}")
+        
+        # Start background processing
+        thread = threading.Thread(target=process_video_transcription)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Video transcription started',
+            'transcriptionId': transcription_id
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to start transcription: {str(e)}'}), 500
+
+@app.route('/api/transcription/<transcription_id>', methods=['GET'])
+def get_transcription(transcription_id):
+    """Get transcription status and results"""
+    security_key = request.headers.get('X-Security-Key')
+    
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    try:
+        response = requests.get(f"{NEXTJS_API_BASE}/transcriptions?id={transcription_id}",
+            headers={'x-security-key': SECURITY_KEY}
+        )
+        
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            return jsonify(response.json()), response.status_code
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get transcription: {str(e)}'}), 500
 
 @app.route('/frames/<path:filename>')
 def serve_frame(filename):
