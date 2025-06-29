@@ -1,0 +1,104 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  videos    Video[]
+
+  @@map("projects")
+}
+
+model Video {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  description String?  @db.Text
+  tags        String?  @db.Text
+  filename    String
+  originalUrl String?  @db.Text
+  fileSize    Int?
+  duration    Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Frame analysis data
+  frameAnalysis VideoFrameAnalysis?
+  
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("videos")
+}
+
+model VideoFrameAnalysis {
+  id             String   @id @default(cuid())
+  videoId        String   @unique
+  frameSampling  Int      @default(5) // seconds between frames
+  status         String   @default("pending") // pending, processing, completed, failed
+  totalFrames    Int?
+  processedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  frames         VideoFrame[]
+  captions       VideoCaption[]
+  persons        VideoPerson[]
+
+  @@map("video_frame_analysis")
+}
+
+model VideoFrame {
+  id           String   @id @default(cuid())
+  analysisId   String
+  timestamp    String   // format: "HH.MM.SS"
+  imageLink    String   @db.Text
+  clipEmbedding String? @db.LongText // JSON string of embedding
+  createdAt    DateTime @default(now())
+  
+  analysis     VideoFrameAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@map("video_frames")
+}
+
+model VideoCaption {
+  id               String   @id @default(cuid())
+  analysisId       String
+  timestamp        String   // format: "HH.MM.SS"
+  imageLink        String   @db.Text
+  caption          String   @db.Text
+  captionEmbedding String?  @db.LongText // JSON string of embedding
+  createdAt        DateTime @default(now())
+  
+  analysis         VideoFrameAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@map("video_captions")
+}
+
+model VideoPerson {
+  id            String   @id @default(cuid())
+  analysisId    String
+  timestamp     String   // format: "HH.MM.SS"
+  imageLink     String   @db.Text
+  personUid     String   // unique identifier for the detected person
+  clipEmbedding String?  @db.LongText // JSON string of embedding
+  createdAt     DateTime @default(now())
+  
+  analysis      VideoFrameAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@map("video_persons")
+}
