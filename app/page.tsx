@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { LogOut, Video, Upload, Youtube, Plus, FolderOpen, Camera, MessageSquare, Users, TrendingUp, Clock, CheckCircle, AlertCircle, XCircle, ChevronRight, Activity, RefreshCw, Filter, Play, Pause, Eye, Download, Zap } from 'lucide-react'
+import { LogOut, Video, Upload, Youtube, Plus, FolderOpen, Camera, MessageSquare, Users, TrendingUp, Clock, CheckCircle, AlertCircle, XCircle, ChevronRight, Activity, RefreshCw, Filter, Play, Pause, Eye, Download, Zap, FileText, Scissors, Hash, Mic, Globe } from 'lucide-react'
 import axios from 'axios'
 import Image from 'next/image'
 import { Progress } from '@/components/ui/progress'
@@ -77,6 +77,36 @@ interface TranscriptionSegment {
   isEdited: boolean
 }
 
+interface VideoSegment {
+  id: string
+  videoId: string
+  segmentIndex: number
+  startingTimestamp: string
+  endingTimestamp: string
+  startSeconds: number
+  endSeconds: number
+  description: string
+  status: string
+  model?: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface VideoTopic {
+  id: string
+  videoId: string
+  topicIndex: number
+  startingTimestamp: string
+  endingTimestamp: string
+  startSeconds: number
+  endSeconds: number
+  topic: string
+  status: string
+  model?: string
+  createdAt: string
+  updatedAt: string
+}
+
 interface Video {
   id: string
   title: string
@@ -90,6 +120,8 @@ interface Video {
   updatedAt: string
   frameAnalysis?: FrameAnalysis
   transcription?: Transcription
+  segments?: VideoSegment[]
+  topics?: VideoTopic[]
 }
 
 interface Project {
@@ -117,6 +149,16 @@ interface DashboardStats {
   transcriptionProcessing: number
   transcriptionFailed: number
   languagesDetected: number
+  // Video Summarization Stats
+  totalSummarizations: number
+  totalVideoSegments: number
+  totalVideoTopics: number
+  summarizationCompleted: number
+  summarizationProcessing: number
+  summarizationFailed: number
+  modelsUsed: number
+  avgSegmentsPerVideo: number
+  avgTopicsPerVideo: number
 }
 
 interface StatCardData {
@@ -132,12 +174,39 @@ interface StatCardData {
   action?: () => void
 }
 
+interface SearchResult {
+  id: string
+  type: 'text' | 'person' | 'frame'
+  videoId: string
+  videoTitle: string
+  timestamp?: string
+  score: number
+  content: string
+  imageUrl?: string
+  metadata?: any
+}
+
+interface SearchHistory {
+  id: string
+  projectName: string
+  query: string
+  searchType: string
+  results: SearchResult[]
+  tokenUsage?: number
+  cost?: number
+  model?: string
+  metadata?: any
+  createdAt: string
+}
+
 export default function Home() {
   const [currentProject, setCurrentProject] = useState<string | null>(null)
   const [isValidated, setIsValidated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [projectData, setProjectData] = useState<Project | null>(null)
+  const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
+  const [searchHistoryLoading, setSearchHistoryLoading] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({
     totalVideos: 0,
     storageUsed: 0,
@@ -156,7 +225,17 @@ export default function Home() {
     transcriptionCompleted: 0,
     transcriptionProcessing: 0,
     transcriptionFailed: 0,
-    languagesDetected: 0
+    languagesDetected: 0,
+    // Video Summarization Stats
+    totalSummarizations: 0,
+    totalVideoSegments: 0,
+    totalVideoTopics: 0,
+    summarizationCompleted: 0,
+    summarizationProcessing: 0,
+    summarizationFailed: 0,
+    modelsUsed: 0,
+    avgSegmentsPerVideo: 0,
+    avgTopicsPerVideo: 0
   })
   
   // Interactive dashboard state
@@ -165,7 +244,7 @@ export default function Home() {
   const [selectedStatCard, setSelectedStatCard] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'completed' | 'processing' | 'failed'>('all')
-  const [activityFilter, setActivityFilter] = useState<'all' | 'uploads' | 'analysis' | 'transcription'>('all')
+  const [activityFilter, setActivityFilter] = useState<'all' | 'uploads' | 'analysis' | 'transcription' | 'summarization'>('all')
 
   // Load project from localStorage on mount
   useEffect(() => {
@@ -254,6 +333,37 @@ export default function Home() {
       })
       const languagesDetected = allLanguages.size
 
+      // Calculate video summarization stats
+      const videosWithSummarization = project.videos.filter((video: Video) => video.segments && video.segments.length > 0)
+      const totalSummarizations = videosWithSummarization.length
+      const totalVideoSegments = videosWithSummarization.reduce((acc: number, video: Video) => 
+        acc + (video.segments?.length || 0), 0)
+      const totalVideoTopics = videosWithSummarization.reduce((acc: number, video: Video) => 
+        acc + (video.topics?.length || 0), 0)
+      
+      // Summarization status counts
+      const summarizationCompleted = project.videos.filter((video: Video) => 
+        video.segments && video.segments.length > 0 && video.segments[0].status === 'completed').length
+      const summarizationProcessing = project.videos.filter((video: Video) => 
+        video.segments && video.segments.length > 0 && video.segments[0].status === 'processing').length
+      const summarizationFailed = project.videos.filter((video: Video) => 
+        video.segments && video.segments.length > 0 && video.segments[0].status === 'failed').length
+      
+      // Calculate unique models used for summarization
+      const allModels = new Set<string>()
+      videosWithSummarization.forEach((video: Video) => {
+        video.segments?.forEach((segment: VideoSegment) => {
+          if (segment.model) {
+            allModels.add(segment.model)
+          }
+        })
+      })
+      const modelsUsed = allModels.size
+      
+      // Calculate averages
+      const avgSegmentsPerVideo = totalSummarizations > 0 ? Math.round(totalVideoSegments / totalSummarizations) : 0
+      const avgTopicsPerVideo = totalSummarizations > 0 ? Math.round(totalVideoTopics / totalSummarizations) : 0
+      
       setDashboardStats({
         totalVideos,
         storageUsed,
@@ -272,7 +382,17 @@ export default function Home() {
         transcriptionCompleted,
         transcriptionProcessing,
         transcriptionFailed,
-        languagesDetected
+        languagesDetected,
+        // Video Summarization Stats
+        totalSummarizations,
+        totalVideoSegments,
+        totalVideoTopics,
+        summarizationCompleted,
+        summarizationProcessing,
+        summarizationFailed,
+        modelsUsed,
+        avgSegmentsPerVideo,
+        avgTopicsPerVideo
       })
     } catch (error) {
       console.error('Failed to fetch project data:', error)
@@ -292,10 +412,26 @@ export default function Home() {
     setCurrentProject(null)
     setIsValidated(false)
     setProjectData(null)
+    setSearchHistory([])
     
     // Clear localStorage
     localStorage.removeItem('rcsquare-current-project')
     localStorage.removeItem('rcsquare-validated')
+  }
+
+  const fetchSearchHistory = async () => {
+    if (!currentProject) return
+    
+    setSearchHistoryLoading(true)
+    try {
+      const response = await axios.get(`/api/search-history?project=${currentProject}`)
+      setSearchHistory(response.data.searches || [])
+    } catch (error) {
+      console.error('Failed to fetch search history:', error)
+      setSearchHistory([])
+    } finally {
+      setSearchHistoryLoading(false)
+    }
   }
 
   const formatFileSize = (bytes: number) => {
@@ -365,6 +501,17 @@ export default function Home() {
         trend: '+15%',
         description: 'Videos uploaded directly from your device',
         action: () => setActiveTab('upload')
+      },
+      {
+        id: 'summarizations',
+        title: 'Video Summarizations',
+        value: dashboardStats.totalSummarizations,
+        subtitle: dashboardStats.totalSummarizations > 0 ? `${dashboardStats.totalVideoSegments} segments, ${dashboardStats.totalVideoTopics} topics` : 'No summarizations yet',
+        icon: FileText,
+        color: 'indigo' as const,
+        trend: '+25%',
+        description: 'AI-generated video summaries with segments and topics',
+        action: () => setActiveTab('library')
       }
     ]
   }
@@ -451,6 +598,47 @@ export default function Home() {
     ]
   }
 
+  const getSummarizationStats = (): StatCardData[] => {
+    return [
+      {
+        id: 'video-summarizations',
+        title: 'Video Summarizations',
+        value: dashboardStats.totalSummarizations,
+        subtitle: dashboardStats.totalSummarizations > 0 ? 'Videos summarized' : 'No summarizations yet',
+        icon: FileText,
+        color: 'purple' as const,
+        progress: dashboardStats.totalVideos > 0 ? (dashboardStats.summarizationCompleted / dashboardStats.totalVideos) * 100 : 0
+      },
+      {
+        id: 'video-segments',
+        title: 'Video Segments',
+        value: dashboardStats.totalVideoSegments.toLocaleString(),
+        subtitle: dashboardStats.totalVideoSegments > 0 ? `Avg ${dashboardStats.avgSegmentsPerVideo} per video` : 'No segments yet',
+        icon: Scissors,
+        color: 'indigo' as const,
+        progress: dashboardStats.totalVideos > 0 ? (dashboardStats.summarizationCompleted / dashboardStats.totalVideos) * 100 : 0
+      },
+      {
+        id: 'video-topics',
+        title: 'Video Topics',
+        value: dashboardStats.totalVideoTopics.toLocaleString(),
+        subtitle: dashboardStats.totalVideoTopics > 0 ? `Avg ${dashboardStats.avgTopicsPerVideo} per video` : 'No topics yet',
+        icon: Hash,
+        color: 'pink' as const,
+        progress: dashboardStats.totalVideos > 0 ? (dashboardStats.summarizationCompleted / dashboardStats.totalVideos) * 100 : 0
+      },
+      {
+        id: 'ai-models',
+        title: 'AI Models Used',
+        value: dashboardStats.modelsUsed,
+        subtitle: dashboardStats.modelsUsed > 0 ? 'Different models' : 'No models used',
+        icon: Zap,
+        color: 'cyan' as const,
+        progress: dashboardStats.modelsUsed > 0 ? 100 : 0
+      }
+    ]
+  }
+
   const StatCard = ({ stat, onClick }: { stat: StatCardData, onClick?: () => void }) => {
     const colorClasses = {
       blue: 'border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20 hover:bg-blue-100/50 dark:hover:bg-blue-950/30',
@@ -500,11 +688,11 @@ export default function Home() {
         <CardContent>
           <div className={`text-2xl font-bold ${valueColorClasses[stat.color]} flex items-center gap-2`}>
             {stat.value}
-            {stat.trend && (
+            {/* {stat.trend && (
               <Badge variant="secondary" className="text-xs">
                 {stat.trend}
               </Badge>
-            )}
+            )} */}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             {stat.subtitle}
@@ -529,8 +717,8 @@ export default function Home() {
       description: string
       time: string
       timestamp: string
-      type: 'youtube' | 'upload' | 'analysis_completed' | 'analysis_processing' | 'analysis_failed' | 'transcription_completed' | 'transcription_processing' | 'transcription_failed'
-      category: 'uploads' | 'analysis' | 'transcription'
+      type: 'youtube' | 'upload' | 'analysis_completed' | 'analysis_processing' | 'analysis_failed' | 'transcription_completed' | 'transcription_processing' | 'transcription_failed' | 'summarization_completed' | 'summarization_processing' | 'summarization_failed'
+      category: 'uploads' | 'analysis' | 'transcription' | 'summarization'
       status: 'completed' | 'processing' | 'failed' | 'success'
       metadata?: {
         fileSize?: number
@@ -622,6 +810,35 @@ export default function Home() {
           videoId: video.id
         })
       }
+
+      // Add summarization activities
+      if (video.segments && video.segments.length > 0) {
+        const summarizationDate = video.segments[0].createdAt || video.updatedAt || video.createdAt
+        const videoSegments = video.segments.length
+        const videoTopics = video.topics?.length || 0
+        const model = video.segments[0].model || 'Unknown model'
+        const status = video.segments[0].status || 'pending'
+        
+        activities.push({
+          id: `summarization-${video.id}`,
+          title: `Video summarization ${status}`,
+          subtitle: video.title,
+          description: `${videoSegments} segments • ${videoTopics} topics • ${model}`,
+          time: getTimeAgo(summarizationDate),
+          timestamp: summarizationDate,
+          type: status === 'completed' ? 'summarization_completed' : 
+                status === 'processing' ? 'summarization_processing' : 'summarization_failed',
+          category: 'summarization',
+          status: status === 'completed' ? 'completed' : 
+                  status === 'processing' ? 'processing' : 'failed',
+          metadata: {
+            segments: videoSegments,
+            progress: status === 'processing' ? 
+              Math.round((videoSegments / 20) * 100) : undefined
+          },
+          videoId: video.id
+        })
+      }
     })
     
     // Sort by actual timestamp and return top 12
@@ -666,6 +883,9 @@ export default function Home() {
       case 'transcription_completed': return <MessageSquare className={`${iconProps} text-purple-500`} />
       case 'transcription_processing': return <MessageSquare className={`${iconProps} text-yellow-500 animate-pulse`} />
       case 'transcription_failed': return <MessageSquare className={`${iconProps} text-red-500`} />
+      case 'summarization_completed': return <FileText className={`${iconProps} text-indigo-500`} />
+      case 'summarization_processing': return <FileText className={`${iconProps} text-yellow-500 animate-pulse`} />
+      case 'summarization_failed': return <FileText className={`${iconProps} text-red-500`} />
       default: return <Activity className={`${iconProps} text-gray-500`} />
     }
   }
@@ -686,8 +906,8 @@ export default function Home() {
 
   const getTimeAgo = (dateString: string) => {
     try {
-      const now = new Date()
-      const date = new Date(dateString)
+    const now = new Date()
+    const date = new Date(dateString)
       
       // Check if date is valid
       if (isNaN(date.getTime())) {
@@ -701,10 +921,10 @@ export default function Home() {
       
       if (diffInMinutes < 1) return 'Just now'
       if (diffInMinutes < 60) return `${diffInMinutes}m ago`
-      if (diffInHours < 24) return `${diffInHours}h ago`
-      if (diffInDays < 7) return `${diffInDays}d ago`
+    if (diffInHours < 24) return `${diffInHours}h ago`
+    if (diffInDays < 7) return `${diffInDays}d ago`
       if (diffInDays < 30) return `${Math.floor(diffInDays / 7)}w ago`
-      return date.toLocaleDateString()
+    return date.toLocaleDateString()
     } catch (error) {
       console.error('Error calculating time ago:', error, dateString)
       return 'Unknown time'
@@ -786,12 +1006,15 @@ export default function Home() {
           setActiveTab(value)
           if (value === 'overview') {
             fetchProjectData() // Refresh data when switching to overview
+          } else if (value === 'searches') {
+            fetchSearchHistory() // Fetch search history when switching to searches
           }
         }} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="upload">Upload</TabsTrigger>
             <TabsTrigger value="library">Library</TabsTrigger>
+            <TabsTrigger value="searches">Searches</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -854,6 +1077,19 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+
+              {/* Video Summarization Stats */}
+              <div>
+                <h4 className="text-md font-medium mb-2 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-indigo-600" />
+                  Video Summarization
+                </h4>
+                <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+                  {getSummarizationStats().map((stat) => (
+                    <StatCard key={stat.id} stat={stat} />
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Interactive Content Grid */}
@@ -862,7 +1098,7 @@ export default function Home() {
                 <CardHeader className="flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Recent Activity</CardTitle>
+                  <CardTitle>Recent Activity</CardTitle>
                       <CardDescription>Latest uploads and AI analysis results</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
@@ -921,6 +1157,15 @@ export default function Home() {
                       <MessageSquare className="h-3 w-3 mr-1" />
                       Transcription
                     </Button>
+                    <Button
+                      variant={activityFilter === 'summarization' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setActivityFilter('summarization')}
+                      className="h-7 text-xs"
+                    >
+                      <FileText className="h-3 w-3 mr-1" />
+                      Summarization
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0">
@@ -957,7 +1202,7 @@ export default function Home() {
                               {/* Time and Actions */}
                               <div className="flex items-center justify-between pt-1">
                                 <span className="text-xs text-muted-foreground" title={new Date(activity.timestamp).toLocaleString()}>
-                                  {activity.time}
+                              {activity.time}
                                 </span>
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setActiveTab('library')}>
@@ -1009,128 +1254,193 @@ export default function Home() {
                     Frame analysis and transcription status across all videos
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 flex flex-col space-y-6">
-                  {/* Frame Analysis Status */}
-                  <div className="flex-1 space-y-4">
-                    <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                      <Camera className="h-4 w-4 text-blue-600" />
-                      Frame Analysis
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
+                <CardContent className="flex-1 flex flex-col min-h-0">
+                  <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+                    {/* Frame Analysis Status */}
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <Camera className="h-4 w-4 text-blue-600" />
+                        Frame Analysis
+                      </h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Completed</span>
+                              <p className="text-xs text-muted-foreground">Analysis finished</p>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-sm font-medium">Completed</span>
-                            <p className="text-xs text-muted-foreground">Analysis finished</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.analysisCompleted}</span>
-                          <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisCompleted / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
-                            <Clock className="h-4 w-4 text-yellow-600 animate-pulse" />
-                          </div>
-                          <div>
-                            <span className="text-sm font-medium">Processing</span>
-                            <p className="text-xs text-muted-foreground">In progress</p>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.analysisCompleted}</span>
+                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisCompleted / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.analysisProcessing}</span>
-                          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisProcessing / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
-                            <XCircle className="h-4 w-4 text-red-600" />
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+                              <Clock className="h-4 w-4 text-yellow-600 animate-pulse" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Processing</span>
+                              <p className="text-xs text-muted-foreground">In progress</p>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-sm font-medium">Failed</span>
-                            <p className="text-xs text-muted-foreground">Requires attention</p>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.analysisProcessing}</span>
+                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisProcessing / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.analysisFailed}</span>
-                          <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisFailed / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                              <XCircle className="h-4 w-4 text-red-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Failed</span>
+                              <p className="text-xs text-muted-foreground">Requires attention</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.analysisFailed}</span>
+                            <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.analysisFailed / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Transcription Status */}
-                  <div className="flex-1 space-y-4 border-t pt-4">
-                    <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                      <MessageSquare className="h-4 w-4 text-purple-600" />
-                      Audio Transcription
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
+                    {/* Transcription Status */}
+                    <div className="space-y-4 border-t pt-4">
+                      <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-purple-600" />
+                        Audio Transcription
+                      </h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Completed</span>
+                              <p className="text-xs text-muted-foreground">Transcription finished</p>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-sm font-medium">Completed</span>
-                            <p className="text-xs text-muted-foreground">Transcription finished</p>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.transcriptionCompleted}</span>
+                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionCompleted / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.transcriptionCompleted}</span>
-                          <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionCompleted / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+                              <Clock className="h-4 w-4 text-yellow-600 animate-pulse" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Processing</span>
+                              <p className="text-xs text-muted-foreground">In progress</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.transcriptionProcessing}</span>
+                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionProcessing / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                              <XCircle className="h-4 w-4 text-red-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Failed</span>
+                              <p className="text-xs text-muted-foreground">Requires attention</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.transcriptionFailed}</span>
+                            <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionFailed / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
+                          </div>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
-                            <Clock className="h-4 w-4 text-yellow-600 animate-pulse" />
+                    </div>
+
+                    {/* Video Summarization Status */}
+                    <div className="space-y-4 border-t pt-4">
+                      <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-indigo-600" />
+                        Video Summarization
+                      </h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Completed</span>
+                              <p className="text-xs text-muted-foreground">Summarization finished</p>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-sm font-medium">Processing</span>
-                            <p className="text-xs text-muted-foreground">In progress</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.transcriptionProcessing}</span>
-                          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionProcessing / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
-                            <XCircle className="h-4 w-4 text-red-600" />
-                          </div>
-                          <div>
-                            <span className="text-sm font-medium">Failed</span>
-                            <p className="text-xs text-muted-foreground">Requires attention</p>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.summarizationCompleted}</span>
+                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.summarizationCompleted / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-lg font-bold">{dashboardStats.transcriptionFailed}</span>
-                          <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs ml-2">
-                            {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.transcriptionFailed / dashboardStats.totalVideos) * 100) : 0}%
-                          </Badge>
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+                              <Clock className="h-4 w-4 text-yellow-600 animate-pulse" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Processing</span>
+                              <p className="text-xs text-muted-foreground">In progress</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.summarizationProcessing}</span>
+                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.summarizationProcessing / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                              <XCircle className="h-4 w-4 text-red-600" />
+                            </div>
+                            <div>
+                              <span className="text-sm font-medium">Failed</span>
+                              <p className="text-xs text-muted-foreground">Requires attention</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">{dashboardStats.summarizationFailed}</span>
+                            <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs ml-2">
+                              {dashboardStats.totalVideos > 0 ? Math.round((dashboardStats.summarizationFailed / dashboardStats.totalVideos) * 100) : 0}%
+                            </Badge>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1141,11 +1451,11 @@ export default function Home() {
                       <Button className="w-full justify-start" onClick={() => setActiveTab('library')} size="sm">
                         <TrendingUp className="mr-2 h-4 w-4" />
                         View All Analysis
-                      </Button>
+                  </Button>
                       <Button variant="outline" className="w-full justify-start" onClick={() => setActiveTab('upload')} size="sm">
                         <Plus className="mr-2 h-4 w-4" />
                         Add More Content
-                      </Button>
+                  </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -1197,6 +1507,171 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <VideoList projectName={currentProject!} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="searches" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Globe className="h-5 w-5" />
+                      Search History
+                    </CardTitle>
+                    <CardDescription>
+                      View your AI-powered search results and history
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={fetchSearchHistory}
+                      disabled={searchHistoryLoading}
+                    >
+                      {searchHistoryLoading ? (
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      Refresh
+                    </Button>
+                    <Button 
+                      size="sm"
+                      onClick={() => window.open(`/q/${currentProject}`, '_blank')}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      New Search
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {searchHistoryLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  </div>
+                ) : searchHistory.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Globe className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No searches yet</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Start searching through your video content using AI-powered tools
+                    </p>
+                    <Button onClick={() => window.open(`/q/${currentProject}`, '_blank')}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Start Searching
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {searchHistory.map((search) => (
+                      <div key={search.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-1">
+                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                {search.searchType === 'text' && <MessageSquare className="h-4 w-4" />}
+                                {search.searchType === 'person' && <Users className="h-4 w-4" />}
+                                {search.searchType === 'frame' && <Camera className="h-4 w-4" />}
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-medium mb-1">{search.searchType === 'text' ? search.query : `${search.searchType} search`}</h4>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Badge variant="outline" className="text-xs">
+                                  {search.searchType}
+                                </Badge>
+                                <span>•</span>
+                                <span>{search.results.length} results</span>
+                                {search.tokenUsage && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{search.tokenUsage} tokens</span>
+                                  </>
+                                )}
+                                {search.cost && (
+                                  <>
+                                    <span>•</span>
+                                    <span>${search.cost.toFixed(4)}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right text-sm text-muted-foreground">
+                            {getTimeAgo(search.createdAt)}
+                          </div>
+                        </div>
+                        
+                        {search.results.length > 0 && (
+                          <div className="border-t pt-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-medium text-muted-foreground">
+                                Search Results Preview
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-6"
+                                onClick={() => {
+                                  // Create a new search page with the historical results
+                                  const searchParams = new URLSearchParams({
+                                    type: search.searchType,
+                                    query: search.query,
+                                    results: JSON.stringify(search.results)
+                                  });
+                                  window.open(`/q/${search.projectName}/history?${searchParams.toString()}`, '_blank');
+                                }}
+                              >
+                                <Eye className="mr-1 h-3 w-3" />
+                                View Full Results
+                              </Button>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {search.results.slice(0, 6).map((result) => (
+                                <div key={result.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+                                                      onClick={() => {
+                                        const videoUrl = `http://localhost:3001/api/video/${result.videoId.substring(0, 8)}?project=${search.projectName}`;
+                                        if (result.timestamp) {
+                                          const timestampStart = result.timestamp.split('-')[0];
+                                          const [hours, minutes, seconds] = timestampStart.split('.').map(Number);
+                                          const seekTime = hours * 3600 + minutes * 60 + seconds;
+                                          window.open(`${videoUrl}#t=${seekTime}`, '_blank');
+                                        } else {
+                                          window.open(videoUrl, '_blank');
+                                        }
+                                      }}>
+                                  <div className="flex-shrink-0">
+                                    <Badge variant="secondary" className="text-xs">
+                                      {(result.score * 100).toFixed(0)}%
+                                    </Badge>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium truncate">{result.videoTitle}</p>
+                                    {result.timestamp && (
+                                      <p className="text-xs text-muted-foreground">{result.timestamp}</p>
+                                    )}
+                                  </div>
+                                  <Eye className="h-3 w-3 text-muted-foreground" />
+                                </div>
+                              ))}
+                            </div>
+                            {search.results.length > 6 && (
+                              <div className="text-center mt-2">
+                                <Badge variant="outline" className="text-xs">
+                                  +{search.results.length - 6} more results
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

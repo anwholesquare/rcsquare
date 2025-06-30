@@ -53,46 +53,85 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const projectName = searchParams.get('name')
-    const securityKey = request.headers.get('x-security-key')
+    const securityKey = searchParams.get('key') || request.headers.get('x-security-key')
 
     if (securityKey !== SECURITY_KEY) {
       return NextResponse.json({ error: 'Invalid security key' }, { status: 401 })
     }
 
-    if (!projectName) {
-      return NextResponse.json({ error: 'Project name required' }, { status: 400 })
-    }
-
-    const project = await prisma.project.findUnique({
-      where: { name: projectName },
-      include: {
-        videos: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            frameAnalysis: {
-              include: {
-                frames: true,
-                captions: true,
-                persons: true
-              }
-            },
-            transcription: {
-              include: {
-                segments: {
-                  orderBy: { segmentIndex: 'asc' }
+    if (projectName) {
+      // Get specific project by name
+      const project = await prisma.project.findUnique({
+        where: { name: projectName },
+        include: {
+          videos: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              frameAnalysis: {
+                include: {
+                  frames: true,
+                  captions: true,
+                  persons: true
                 }
+              },
+              transcription: {
+                include: {
+                  segments: {
+                    orderBy: { segmentIndex: 'asc' }
+                  }
+                }
+              },
+              segments: {
+                orderBy: { segmentIndex: 'asc' }
+              },
+              topics: {
+                orderBy: { topicIndex: 'asc' }
               }
-            }
-          } as any
+            } as any
+          }
         }
+      })
+
+      if (!project) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 })
       }
-    })
 
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+      return NextResponse.json({ project })
+    } else {
+      // Get all projects
+      const projects = await prisma.project.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          videos: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              frameAnalysis: {
+                include: {
+                  frames: true,
+                  captions: true,
+                  persons: true
+                }
+              },
+              transcription: {
+                include: {
+                  segments: {
+                    orderBy: { segmentIndex: 'asc' }
+                  }
+                }
+              },
+              segments: {
+                orderBy: { segmentIndex: 'asc' }
+              },
+              topics: {
+                orderBy: { topicIndex: 'asc' }
+              }
+            } as any
+          }
+        }
+      })
+
+      return NextResponse.json(projects)
     }
-
-    return NextResponse.json({ project })
   } catch (error) {
     console.error('Get project error:', error)
     return NextResponse.json(

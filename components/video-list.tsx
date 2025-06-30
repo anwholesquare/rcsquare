@@ -24,6 +24,8 @@ interface Video {
   updatedAt: string
   frameAnalysis?: FrameAnalysis
   transcription?: Transcription
+  segments?: VideoSegment[]
+  topics?: VideoTopic[]
 }
 
 interface FrameAnalysis {
@@ -88,6 +90,36 @@ interface TranscriptionSegment {
   isEdited: boolean
 }
 
+interface VideoSegment {
+  id: string
+  videoId: string
+  segmentIndex: number
+  startingTimestamp: string
+  endingTimestamp: string
+  startSeconds: number
+  endSeconds: number
+  description: string
+  status: string
+  model?: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface VideoTopic {
+  id: string
+  videoId: string
+  topicIndex: number
+  startingTimestamp: string
+  endingTimestamp: string
+  startSeconds: number
+  endSeconds: number
+  topic: string
+  status: string
+  model?: string
+  createdAt: string
+  updatedAt: string
+}
+
 interface Project {
   id: string
   name: string
@@ -125,6 +157,14 @@ export function VideoList({ projectName }: VideoListProps) {
   const [transcriptionSettings, setTranscriptionSettings] = useState<{ [key: string]: { refineWithLlm: boolean, model: string } }>({})
   const [visibleSegments, setVisibleSegments] = useState(20)
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false)
+
+  // Summarization state
+  const [summarizingVideos, setSummarizingVideos] = useState<Set<string>>(new Set())
+  const [showSummarizationDetails, setShowSummarizationDetails] = useState<string | null>(null)
+  const [summarizationData, setSummarizationData] = useState<{ segments: VideoSegment[], topics: VideoTopic[] } | null>(null)
+  const [summarizationSettings, setSummarizationSettings] = useState<{ [key: string]: { model: string, segmentDuration: number } }>({})
+  const [visibleSummarySegments, setVisibleSummarySegments] = useState(10)
+  const [visibleTopics, setVisibleTopics] = useState(5)
 
   // Placeholder images as data URIs
   const placeholderImage = "data:image/svg+xml;base64," + btoa(`
@@ -197,8 +237,13 @@ export function VideoList({ projectName }: VideoListProps) {
     const hasProcessingTranscription = project?.videos.some(video => 
       video.transcription?.status === 'processing' || transcribingVideos.has(video.id)
     )
+    const hasProcessingSummarization = project?.videos.some(video => 
+      video.segments?.some(segment => segment.status === 'processing') || 
+      video.topics?.some(topic => topic.status === 'processing') ||
+      summarizingVideos.has(video.id)
+    )
 
-    if (hasProcessingAnalysis || hasProcessingTranscription) {
+    if (hasProcessingAnalysis || hasProcessingTranscription || hasProcessingSummarization) {
       const interval = setInterval(async () => {
         // Silent refresh - don't show loading state to avoid flickering
         try {
@@ -434,6 +479,106 @@ export function VideoList({ projectName }: VideoListProps) {
       ...prev,
       [videoId]: settings
     }))
+  }
+
+  // Video Summarization handlers
+  const handleSummarizeVideo = async (videoId: string) => {
+    try {
+      const settings = summarizationSettings[videoId] || { model: 'gpt-4o-mini', segmentDuration: 60 }
+      
+      setSummarizingVideos(prev => new Set(prev).add(videoId))
+      
+      await axios.post('http://localhost:3001/api/summarize-video', {
+        video_id: videoId,
+        model: settings.model,
+        segment_duration: settings.segmentDuration
+      }, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+      
+      // Remove from processing set after a short delay to allow for UI feedback
+      setTimeout(() => {
+        setSummarizingVideos(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(videoId)
+          return newSet
+        })
+      }, 2000)
+      
+    } catch (err: any) {
+      setError('Failed to start video summarization')
+      setSummarizingVideos(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(videoId)
+        return newSet
+      })
+    }
+  }
+
+  const handleShowSummarizationDetails = async (videoId: string) => {
+    try {
+      setShowSummarizationDetails(videoId)
+      
+      // Fetch segments
+      const segmentsResponse = await axios.get(`http://localhost:3001/api/video-segments/${videoId}`, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+      
+      // Fetch topics
+      const topicsResponse = await axios.get(`http://localhost:3001/api/video-topics/${videoId}`, {
+        headers: {
+          'X-Security-Key': '123_RAGISACTIVATED_321',
+        },
+      })
+      
+      setSummarizationData({
+        segments: segmentsResponse.data || [],
+        topics: topicsResponse.data || []
+      })
+    } catch (err: any) {
+      setError('Failed to load summarization details')
+    }
+  }
+
+  const updateSummarizationSettings = (videoId: string, settings: { model: string, segmentDuration: number }) => {
+    setSummarizationSettings(prev => ({
+      ...prev,
+      [videoId]: settings
+    }))
+  }
+
+  const exportSummarizationAsJson = (videoId: string, segments: VideoSegment[], topics: VideoTopic[]) => {
+    const exportData = {
+      video_id: videoId,
+      segments: segments.map(segment => ({
+        starting_timestamp: segment.startingTimestamp,
+        ending_timestamp: segment.endingTimestamp,
+        description: segment.description,
+        created_at: segment.createdAt,
+        updated_at: segment.updatedAt
+      })),
+      topics: topics.map(topic => ({
+        starting_timestamp: topic.startingTimestamp,
+        ending_timestamp: topic.endingTimestamp,
+        topic: topic.topic,
+        created_at: topic.createdAt,
+        updated_at: topic.updatedAt
+      }))
+    }
+    
+    const dataStr = JSON.stringify(exportData, null, 2)
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+    
+    const exportFileDefaultName = `summarization_${videoId}.json`
+    
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('href', dataUri)
+    linkElement.setAttribute('download', exportFileDefaultName)
+    linkElement.click()
   }
 
   const exportTranscriptionAsJson = (transcription: Transcription) => {
@@ -961,6 +1106,207 @@ export function VideoList({ projectName }: VideoListProps) {
                   )}
                 </div>
                 
+                {/* Video Summarization Section */}
+                <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Video Summarization
+                  </h4>
+                  
+                  {video.segments && video.segments.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(video.segments[0]?.status || 'pending')}
+                        <span className="text-xs text-muted-foreground">
+                          {video.segments.length} segments
+                        </span>
+                        {video.topics && video.topics.length > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            • {video.topics.length} topics
+                          </span>
+                        )}
+                        {video.segments[0]?.model && (
+                          <span className="text-xs text-muted-foreground">
+                            • {video.segments[0].model}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {video.segments[0]?.status === 'completed' && (
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleShowSummarizationDetails(video.id)}
+                            className="text-xs h-6"
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            View Summary ({video.segments.length + (video.topics?.length || 0)})
+                          </Button>
+                                                     <Button
+                             size="sm"
+                             variant="outline"
+                             onClick={() => exportSummarizationAsJson(video.id, video.segments || [], video.topics || [])}
+                             className="text-xs h-6"
+                           >
+                            <FileText className="h-3 w-3 mr-1" />
+                            Export JSON
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {video.segments[0]?.status !== 'processing' && (
+                        <div className="space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor={`gpt-model-${video.id}`} className="text-xs whitespace-nowrap">
+                                GPT Model:
+                              </Label>
+                              <select
+                                id={`gpt-model-${video.id}`}
+                                value={summarizationSettings[video.id]?.model || 'gpt-4o-mini-2024-07-18'}
+                                onChange={(e) => updateSummarizationSettings(video.id, {
+                                  ...summarizationSettings[video.id],
+                                  model: e.target.value,
+                                  segmentDuration: summarizationSettings[video.id]?.segmentDuration || 60
+                                })}
+                                className="text-xs border rounded px-1 h-6 bg-background"
+                              >
+                                <option value="gpt-4.1-nano-2025-04-14">GPT-4.1 Nano</option>
+                                <option value="gpt-4o-mini-2024-07-18">GPT-4o Mini</option>
+                              </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor={`segment-duration-${video.id}`} className="text-xs whitespace-nowrap">
+                                Segment (sec):
+                              </Label>
+                              <Input
+                                id={`segment-duration-${video.id}`}
+                                type="number"
+                                min="30"
+                                max="300"
+                                value={summarizationSettings[video.id]?.segmentDuration || 60}
+                                onChange={(e) => updateSummarizationSettings(video.id, {
+                                  ...summarizationSettings[video.id],
+                                  model: summarizationSettings[video.id]?.model || 'gpt-4o-mini-2024-07-18',
+                                  segmentDuration: parseInt(e.target.value) || 60
+                                })}
+                                className="text-xs h-6 w-16"
+                              />
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => handleSummarizeVideo(video.id)}
+                            disabled={summarizingVideos.has(video.id)}
+                            className="text-xs h-6 w-full sm:w-auto"
+                          >
+                            {summarizingVideos.has(video.id) ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                            )}
+                            {video.segments[0]?.status === 'completed' ? 'Regenerate' : 'Retry'}
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {video.segments[0]?.status === 'processing' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>Generating summaries with {video.segments[0]?.model}...</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                            <div className="bg-purple-600 h-1.5 rounded-full animate-pulse" style={{ width: '40%' }}></div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Processing segments and topics • This may take several minutes
+                          </p>
+                        </div>
+                      )}
+                      
+                      {video.segments[0]?.status === 'failed' && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-red-500">
+                            Summarization failed. Please try again.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Generate AI-powered video summaries and contextual topics using GPT models
+                      </p>
+                      <div className="space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`gpt-model-${video.id}`} className="text-xs whitespace-nowrap">
+                              GPT Model:
+                            </Label>
+                            <select
+                              id={`gpt-model-${video.id}`}
+                              value={summarizationSettings[video.id]?.model || 'gpt-4o-mini-2024-07-18'}
+                              onChange={(e) => updateSummarizationSettings(video.id, {
+                                ...summarizationSettings[video.id],
+                                model: e.target.value,
+                                segmentDuration: summarizationSettings[video.id]?.segmentDuration || 60
+                              })}
+                              className="text-xs border rounded px-1 h-6 bg-background"
+                            >
+                              <option value="gpt-4.1-nano-2025-04-14">GPT-4.1 Nano</option>
+                              <option value="gpt-4o-mini-2024-07-18">GPT-4o Mini</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`segment-duration-${video.id}`} className="text-xs whitespace-nowrap">
+                              Segment (sec):
+                            </Label>
+                            <Input
+                              id={`segment-duration-${video.id}`}
+                              type="number"
+                              min="30"
+                              max="300"
+                              value={summarizationSettings[video.id]?.segmentDuration || 60}
+                              onChange={(e) => updateSummarizationSettings(video.id, {
+                                ...summarizationSettings[video.id],
+                                model: summarizationSettings[video.id]?.model || 'gpt-4o-mini-2024-07-18',
+                                segmentDuration: parseInt(e.target.value) || 60
+                              })}
+                              className="text-xs h-6 w-16"
+                            />
+                          </div>
+                        </div>
+                        {summarizingVideos.has(video.id) ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Generating summaries...</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                              <div className="bg-purple-600 h-1.5 rounded-full animate-pulse" style={{ width: '40%' }}></div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Processing segments and topics • This may take several minutes
+                            </p>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleSummarizeVideo(video.id)}
+                            disabled={summarizingVideos.has(video.id)}
+                            className="text-xs h-6 w-full sm:w-auto"
+                          >
+                            <FileText className="h-3 w-3 mr-1" />
+                            Generate Summary
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <div className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
@@ -1470,6 +1816,179 @@ export function VideoList({ projectName }: VideoListProps) {
                     <h3 className="text-lg font-medium mb-2">No transcription segments found</h3>
                     <p className="text-sm text-muted-foreground max-w-md mx-auto">
                       The transcription is still processing or encountered an error.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Summarization Details Dialog */}
+      {showSummarizationDetails && summarizationData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
+          <Card className="w-full max-w-6xl max-h-[95vh] overflow-hidden shadow-2xl mx-2 sm:mx-0">
+            <CardHeader className="border-b bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 p-3 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="text-lg sm:text-2xl flex items-center gap-2 sm:gap-3">
+                    <div className="p-1.5 sm:p-2 bg-purple-100 dark:bg-purple-900 rounded-lg">
+                      <FileText className="h-4 w-4 sm:h-6 sm:w-6 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <span className="truncate">Video Summarization</span>
+                  </CardTitle>
+                  <CardDescription className="mt-2 flex flex-wrap gap-1 sm:gap-2">
+                    <Badge variant="outline" className="bg-white/50 text-xs">
+                      <FileText className="h-2 w-2 sm:h-3 sm:w-3 mr-1" />
+                      {summarizationData.segments.length} segments
+                    </Badge>
+                    <Badge variant="outline" className="bg-white/50 text-xs">
+                      <MessageSquare className="h-2 w-2 sm:h-3 sm:w-3 mr-1" />
+                      {summarizationData.topics.length} topics
+                    </Badge>
+                    {summarizationData.segments[0]?.model && (
+                      <Badge variant="outline" className="bg-white/50 text-xs">
+                        {summarizationData.segments[0].model}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className={`text-xs ${summarizationData.segments[0]?.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+                      {summarizationData.segments[0]?.status || 'pending'}
+                    </Badge>
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => exportSummarizationAsJson(showSummarizationDetails!, summarizationData.segments, summarizationData.topics)}
+                    className="text-xs"
+                  >
+                    <FileText className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">Export JSON</span>
+                    <span className="sm:hidden">Export</span>
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => {
+                      setShowSummarizationDetails(null)
+                      setSummarizationData(null)
+                      setVisibleSummarySegments(10)
+                      setVisibleTopics(5)
+                    }}
+                    className="h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            
+            <CardContent className="overflow-y-auto max-h-[calc(95vh-12rem)] p-3 sm:p-6">
+              <div className="space-y-6">
+                {/* Topics Section */}
+                {summarizationData.topics.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <MessageSquare className="h-5 w-5 text-purple-600" />
+                      Contextual Topics
+                    </h3>
+                    <div className="space-y-2">
+                      {summarizationData.topics.slice(0, visibleTopics).map((topic, index) => (
+                        <Card key={topic.id} className="overflow-hidden hover:shadow-md transition-all duration-200 border-purple-200 dark:border-purple-700">
+                          <CardContent className="p-3 sm:p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-1 sm:gap-2 min-w-0">
+                                <Badge variant="secondary" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 shrink-0">
+                                  Topic #{index + 1}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs font-mono truncate max-w-[160px] sm:max-w-none">
+                                  {topic.startingTimestamp} - {topic.endingTimestamp}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg">
+                              {topic.topic}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                    
+                    {summarizationData.topics.length > visibleTopics && (
+                      <div className="text-center">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setVisibleTopics(prev => prev + 5)}
+                          className="bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 dark:from-purple-950 dark:to-pink-950 border-purple-200 dark:border-purple-800"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Load More Topics ({summarizationData.topics.length - visibleTopics} remaining)
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Segments Section */}
+                {summarizationData.segments.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-purple-600" />
+                      Video Segments
+                    </h3>
+                    <div className="space-y-2">
+                      {summarizationData.segments.slice(0, visibleSummarySegments).map((segment, index) => (
+                        <Card key={segment.id} className="overflow-hidden hover:shadow-md transition-all duration-200 border-purple-200 dark:border-purple-700">
+                          <CardContent className="p-3 sm:p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+                              <div className="flex flex-wrap items-center gap-1 sm:gap-2 min-w-0">
+                                <Badge variant="secondary" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 shrink-0">
+                                  Segment #{index + 1}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs font-mono truncate max-w-[160px] sm:max-w-none">
+                                  {segment.startingTimestamp} - {segment.endingTimestamp}
+                                </Badge>
+                                {segment.model && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {segment.model}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 p-3 rounded-lg">
+                              {segment.description}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                    
+                    {summarizationData.segments.length > visibleSummarySegments && (
+                      <div className="text-center">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setVisibleSummarySegments(prev => prev + 10)}
+                          className="bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 dark:from-purple-950 dark:to-pink-950 border-purple-200 dark:border-purple-800"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Load More Segments ({summarizationData.segments.length - visibleSummarySegments} remaining)
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {summarizationData.segments.length === 0 && summarizationData.topics.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
+                      <FileText className="h-8 w-8 text-slate-400" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-2">No summarization data found</h3>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      The summarization is still processing or has not been started yet.
                     </p>
                   </div>
                 )}

@@ -490,10 +490,17 @@ def extract_audio_from_video(video_path, output_audio_path):
 
 def seconds_to_timestamp(seconds):
     """Convert seconds to HH.MM.SS format"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    return f"{hours:02d}.{minutes:02d}.{secs:02d}"
+    if seconds is None:
+        return "00.00.00"
+    
+    try:
+        seconds = float(seconds)
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}.{minutes:02d}.{secs:02d}"
+    except (ValueError, TypeError):
+        return "00.00.00"
 
 def transcribe_audio_with_whisper(audio_path):
     """Transcribe audio using Whisper model"""
@@ -684,21 +691,77 @@ def download_youtube():
         
         # Download with yt-dlp
         ydl_opts = {
-            'format': 'best[height<=720]',
+            'format': 'best[ext=mp4]/best[ext=webm]/best/worst',
             'outtmpl': os.path.join(videos_path, f'{video_id}_original.%(ext)s'),
+            'noplaylist': True,
+            'extractaudio': False,
+            'ignoreerrors': False,
+            # Anti-bot detection measures
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'headers': {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            # Additional options for better compatibility
+            'extract_flat': False,
+            'writethumbnail': False,
+            'writeinfojson': False,
+            'no_warnings': False,
+            'sleep_interval': 1,
+            'max_sleep_interval': 5,
         }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            original_filename = ydl.prepare_filename(info)
+        # Try downloading with primary options first
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                original_filename = ydl.prepare_filename(info)
+                
+                # If no metadata provided, extract from video info
+                if not title:
+                    title = info.get('title', 'Unknown Title')
+                if not description:
+                    description = info.get('description', '')
+                if not tags:
+                    tags = ', '.join(info.get('tags', []))
+        except Exception as primary_error:
+            print(f"Primary download failed: {primary_error}")
             
-            # If no metadata provided, extract from video info
-            if not title:
-                title = info.get('title', 'Unknown Title')
-            if not description:
-                description = info.get('description', '')
-            if not tags:
-                tags = ', '.join(info.get('tags', []))
+            # Fallback: Try with more conservative settings
+            fallback_opts = {
+                'format': 'worst/best',
+                'outtmpl': os.path.join(videos_path, f'{video_id}_original.%(ext)s'),
+                'noplaylist': True,
+                'extractaudio': False,
+                'ignoreerrors': True,
+                'no_warnings': True,
+                'quiet': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'sleep_interval': 2,
+                'max_sleep_interval': 10,
+            }
+            
+            try:
+                print("Trying fallback download with conservative settings...")
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    original_filename = ydl.prepare_filename(info)
+                    
+                    # If no metadata provided, extract from video info
+                    if not title:
+                        title = info.get('title', 'Unknown Title')
+                    if not description:
+                        description = info.get('description', '')
+                    if not tags:
+                        tags = ', '.join(info.get('tags', []))
+            except Exception as fallback_error:
+                print(f"Fallback download also failed: {fallback_error}")
+                return jsonify({'error': f'Download failed: {str(fallback_error)}. YouTube may be blocking downloads. Try again later or use a different video.'}), 500
         
         print(f"Downloaded video: {original_filename}")
         
@@ -930,13 +993,20 @@ def serve_video(video_id):
             project_data = response.json()
             videos = project_data.get('project', {}).get('videos', [])
             
-            # Find the video by matching the video_id with the start of the filename
+            # Find the video by matching the video_id with the database ID or filename
             target_video = None
             for video in videos:
+                db_video_id = video.get('id', '')
                 filename = video.get('filename', '')
-                # Extract the video ID from filename (before the first dot or extension)
                 file_video_id = filename.split('.')[0] if '.' in filename else filename
-                if file_video_id == video_id:
+                
+                # Check if video_id matches:
+                # 1. The first 8 characters of the database video ID
+                # 2. The full database video ID 
+                # 3. The filename (without extension)
+                if (db_video_id.startswith(video_id) or 
+                    db_video_id == video_id or 
+                    file_video_id == video_id):
                     target_video = video
                     break
             
@@ -1395,9 +1465,8 @@ def transcribe_video_api():
                     print(f"💾 Storing transcription segments in database...")
                     
                     # Store segments in database
-                    response = requests.post(f"{NEXTJS_API_BASE}/transcription-segments", 
-                        json={'segments': segment_data},
-                        headers={'x-security-key': SECURITY_KEY}
+                    response = requests.post(f"{NEXTJS_API_BASE}/transcription-segments?key={SECURITY_KEY}", 
+                        json={'segments': segment_data}
                     )
                     
                     if response.status_code != 200:
@@ -1407,7 +1476,7 @@ def transcribe_video_api():
                     
                     # Update transcription status
                     print(f"📊 Finalizing transcription...")
-                    response = requests.put(f"{NEXTJS_API_BASE}/transcriptions", 
+                    response = requests.put(f"{NEXTJS_API_BASE}/transcriptions?key={SECURITY_KEY}", 
                         json={
                             'id': transcription_id,
                             'status': 'completed',
@@ -1415,8 +1484,7 @@ def transcribe_video_api():
                             'totalSegments': len(segments),
                             'totalDuration': total_duration,
                             'processedAt': datetime.now().isoformat()
-                        },
-                        headers={'x-security-key': SECURITY_KEY}
+                        }
                     )
                     
                     if response.status_code == 200:
@@ -1436,13 +1504,12 @@ def transcribe_video_api():
                 
                 # Update transcription status to failed
                 try:
-                    requests.put(f"{NEXTJS_API_BASE}/transcriptions", 
+                    requests.put(f"{NEXTJS_API_BASE}/transcriptions?key={SECURITY_KEY}", 
                         json={
                             'id': transcription_id,
                             'status': 'failed',
                             'errorMessage': str(e)
-                        },
-                        headers={'x-security-key': SECURITY_KEY}
+                        }
                     )
                     print(f"🔄 Updated transcription status to failed")
                 except Exception as update_error:
@@ -1471,9 +1538,7 @@ def get_transcription(transcription_id):
         return jsonify({'error': 'Invalid security key'}), 401
     
     try:
-        response = requests.get(f"{NEXTJS_API_BASE}/transcriptions?id={transcription_id}",
-            headers={'x-security-key': SECURITY_KEY}
-        )
+        response = requests.get(f"{NEXTJS_API_BASE}/transcriptions?key={SECURITY_KEY}&id={transcription_id}")
         
         if response.status_code == 200:
             return jsonify(response.json())
@@ -1482,6 +1547,508 @@ def get_transcription(transcription_id):
         
     except Exception as e:
         return jsonify({'error': f'Failed to get transcription: {str(e)}'}), 500
+
+@app.route('/api/summarize-video', methods=['POST'])
+def summarize_video_api():
+    """Generate video summaries and contextual topics using GPT"""
+    security_key = request.headers.get('X-Security-Key')
+    
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    try:
+        data = request.get_json()
+        video_id = data.get('video_id')
+        model_name = data.get('model', 'gpt-4o-mini-2024-07-18')  # default to gpt-4o-mini-2024-07-18
+        segment_duration = data.get('segment_duration', 60)  # 60 seconds per segment by default
+        
+        if not video_id:
+            return jsonify({'error': 'Video ID is required'}), 400
+            
+        # Validate model name
+        allowed_models = ['gpt-4.1-nano-2025-04-14', 'gpt-4o-mini-2024-07-18']
+        if model_name not in allowed_models:
+            return jsonify({'error': f'Model must be one of: {allowed_models}'}), 400
+        
+        # Check if OpenAI client is available
+        if not openai_client:
+            return jsonify({'error': 'OpenAI client not configured. Please set OPENAI_API_KEY'}), 500
+        
+        print(f"Starting video summarization for video: {video_id} with model: {model_name}")
+        
+        # Start background processing
+        threading.Thread(target=process_video_summarization, args=(video_id, model_name, segment_duration)).start()
+        
+        return jsonify({
+            'message': 'Video summarization started',
+            'video_id': video_id,
+            'model': model_name,
+            'status': 'processing'
+        })
+        
+    except Exception as e:
+        print(f"Error starting video summarization: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def process_video_summarization(video_id, model_name, segment_duration):
+    """Background task to process video summarization"""
+    try:
+        print(f"🎬 Processing video summarization for video: {video_id}")
+        
+        # Get video data  
+        response = requests.get(f"{NEXTJS_API_BASE}/projects?key={SECURITY_KEY}")
+        
+        print(f"📊 Projects API response: {response.status_code}")
+        if response.status_code != 200:
+            print(f"❌ Failed to get projects data: {response.text}")
+            return
+        
+        projects = response.json()
+        video_data = None
+        
+        # Find the video
+        for project in projects:
+            for video in project.get('videos', []):
+                if video['id'] == video_id:
+                    video_data = video
+                    break
+            if video_data:
+                break
+        
+        if not video_data:
+            print(f"❌ Video not found: {video_id}")
+            return
+        
+        print(f"📹 Video data found - Duration: {video_data.get('duration')}")
+        
+        # Get transcription data
+        transcription_data = video_data.get('transcription')
+        frame_analysis_data = video_data.get('frameAnalysis')
+        
+        print(f"📝 Transcription data: {'Found' if transcription_data else 'None'}")
+        print(f"🖼️ Frame analysis data: {'Found' if frame_analysis_data else 'None'}")
+        
+        # Delete existing segments and topics for regeneration
+        print(f"🗑️ Deleting existing segments and topics for video: {video_id}")
+        
+        # Delete existing video segments
+        try:
+            segments_delete_response = requests.delete(
+                f"{NEXTJS_API_BASE}/video-segments?key={SECURITY_KEY}&videoId={video_id}"
+            )
+            if segments_delete_response.status_code == 200:
+                print(f"✅ Deleted existing video segments")
+            else:
+                print(f"⚠️ Failed to delete segments: {segments_delete_response.status_code} - {segments_delete_response.text}")
+        except Exception as e:
+            print(f"⚠️ Error deleting segments: {e}")
+        
+        # Delete existing video topics
+        try:
+            topics_delete_response = requests.delete(
+                f"{NEXTJS_API_BASE}/video-topics?key={SECURITY_KEY}&videoId={video_id}"
+            )
+            if topics_delete_response.status_code == 200:
+                print(f"✅ Deleted existing video topics")
+            else:
+                print(f"⚠️ Failed to delete topics: {topics_delete_response.status_code} - {topics_delete_response.text}")
+        except Exception as e:
+            print(f"⚠️ Error deleting topics: {e}")
+        
+        print(f"🆕 Starting fresh summarization generation...")
+        
+        # Generate segments based on transcription or video duration
+        segments = generate_video_segments(video_data, transcription_data, frame_analysis_data, segment_duration)
+        
+        # Process segments with GPT
+        processed_segments = []
+        processed_topics = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_cost = 0.0
+        
+        for i, segment in enumerate(segments):
+            print(f"📝 Processing segment {i+1}/{len(segments)}: {segment['startingTimestamp']} - {segment['endingTimestamp']}")
+            
+            # Generate segment description
+            segment_description, prompt_tokens, completion_tokens, segment_cost = generate_segment_description(
+                segment, video_data, model_name
+            )
+            
+            # Save segment to database
+            segment_data = {
+                'videoId': video_id,
+                'segmentIndex': i,
+                'startingTimestamp': segment['startingTimestamp'],
+                'endingTimestamp': segment['endingTimestamp'],
+                'startSeconds': segment['startSeconds'],
+                'endSeconds': segment['endSeconds'],
+                'description': segment_description,
+                'status': 'completed',
+                'model': model_name
+            }
+            
+            segment_response = requests.post(
+                f"{NEXTJS_API_BASE}/video-segments?key={SECURITY_KEY}",
+                json=segment_data
+            )
+            
+            print(f"💾 Segment API response: {segment_response.status_code}")
+            if segment_response.status_code == 201:
+                processed_segments.append(segment_response.json())
+                print(f"✅ Saved segment {i+1}")
+            else:
+                print(f"❌ Failed to save segment {i+1}: {segment_response.text}")
+            
+            total_prompt_tokens += prompt_tokens
+            total_completion_tokens += completion_tokens
+            total_cost += segment_cost
+        
+        # Generate contextual topics (only if we have processed segments)
+        topics = []
+        if processed_segments:
+            topics = generate_contextual_topics(processed_segments, video_data, model_name)
+        
+        for i, topic_data in enumerate(topics):
+            topic_request = {
+                'videoId': video_id,
+                'topicIndex': i,
+                'startingTimestamp': topic_data['startingTimestamp'],
+                'endingTimestamp': topic_data['endingTimestamp'],
+                'startSeconds': topic_data['startSeconds'],
+                'endSeconds': topic_data['endSeconds'],
+                'topic': topic_data['topic'],
+                'status': 'completed',
+                'model': model_name
+            }
+            
+            topic_response = requests.post(
+                f"{NEXTJS_API_BASE}/video-topics?key={SECURITY_KEY}",
+                json=topic_request
+            )
+            
+            print(f"🏷️ Topic API response: {topic_response.status_code}")
+            if topic_response.status_code == 201:
+                processed_topics.append(topic_response.json())
+                print(f"✅ Saved topic {i+1}")
+            else:
+                print(f"❌ Failed to save topic {i+1}: {topic_response.text}")
+        
+        # Log token usage
+        log_token_usage(video_id, 'video_summarization', model_name, 
+                       total_prompt_tokens, total_completion_tokens, 
+                       total_prompt_tokens + total_completion_tokens, total_cost)
+        
+        print(f"✅ Video summarization completed for video: {video_id}")
+        print(f"📊 Generated {len(processed_segments)} segments and {len(processed_topics)} topics")
+        print(f"🎯 Total tokens used: {total_prompt_tokens + total_completion_tokens}, Cost: ${total_cost:.4f}")
+        
+    except Exception as e:
+        print(f"❌ Error processing video summarization: {e}")
+
+def generate_video_segments(video_data, transcription_data, frame_analysis_data, segment_duration):
+    """Generate video segments based on duration"""
+    segments = []
+    
+    # Get video duration with proper null checking
+    video_duration = video_data.get('duration')
+    if video_duration is None or video_duration <= 0:
+        # Try to get duration from transcription data
+        if transcription_data and transcription_data.get('totalDuration'):
+            video_duration = transcription_data['totalDuration']
+        else:
+            video_duration = 300  # Default 5 minutes
+    
+    # Ensure we have valid numeric values
+    video_duration = float(video_duration) if video_duration else 300.0
+    segment_duration = float(segment_duration) if segment_duration else 60.0
+    
+    current_time = 0.0
+    
+    while current_time < video_duration:
+        start_seconds = current_time
+        end_seconds = min(current_time + segment_duration, video_duration)
+        
+        segments.append({
+            'startingTimestamp': seconds_to_timestamp(start_seconds),
+            'endingTimestamp': seconds_to_timestamp(end_seconds),
+            'startSeconds': start_seconds,
+            'endSeconds': end_seconds,
+            'transcription': get_segment_transcription(transcription_data, start_seconds, end_seconds),
+            'frames': get_segment_frames(frame_analysis_data, start_seconds, end_seconds)
+        })
+        
+        current_time = end_seconds
+    
+    return segments
+
+def get_segment_transcription(transcription_data, start_seconds, end_seconds):
+    """Get transcription text for a specific time segment"""
+    if not transcription_data or 'segments' not in transcription_data:
+        return ""
+    
+    # Ensure we have valid numeric values
+    start_seconds = float(start_seconds) if start_seconds is not None else 0.0
+    end_seconds = float(end_seconds) if end_seconds is not None else 0.0
+    
+    relevant_text = []
+    for segment in transcription_data['segments']:
+        # Get segment times with null checking
+        seg_start = segment.get('startSeconds')
+        seg_end = segment.get('endSeconds')
+        
+        if seg_start is None or seg_end is None:
+            continue
+            
+        seg_start = float(seg_start)
+        seg_end = float(seg_end)
+        
+        if (seg_start >= start_seconds and seg_start < end_seconds) or \
+           (seg_end > start_seconds and seg_end <= end_seconds) or \
+           (seg_start < start_seconds and seg_end > end_seconds):
+            text = segment.get('refinedTranscription') or segment.get('transcription', '')
+            if text:
+                relevant_text.append(text)
+    
+    return ' '.join(relevant_text)
+
+def get_segment_frames(frame_analysis_data, start_seconds, end_seconds):
+    """Get frame captions for a specific time segment"""
+    if not frame_analysis_data or 'captions' not in frame_analysis_data:
+        return []
+    
+    # Ensure we have valid numeric values
+    start_seconds = float(start_seconds) if start_seconds is not None else 0.0
+    end_seconds = float(end_seconds) if end_seconds is not None else 0.0
+    
+    relevant_captions = []
+    for caption in frame_analysis_data['captions']:
+        try:
+            # Convert timestamp to seconds (assuming HH.MM.SS format)
+            timestamp = caption.get('timestamp', '')
+            if not timestamp:
+                continue
+                
+            timestamp_parts = timestamp.split('.')
+            if len(timestamp_parts) == 3:
+                caption_seconds = float(int(timestamp_parts[0]) * 3600 + int(timestamp_parts[1]) * 60 + int(timestamp_parts[2]))
+                if start_seconds <= caption_seconds < end_seconds:
+                    caption_text = caption.get('caption', '')
+                    if caption_text:
+                        relevant_captions.append(caption_text)
+        except (ValueError, TypeError, AttributeError):
+            # Skip invalid timestamps
+            continue
+    
+    return relevant_captions
+
+def generate_segment_description(segment, video_data, model_name):
+    """Generate AI description for a video segment using GPT"""
+    try:
+        # Prepare context for GPT
+        context = f"""
+Video Title: {video_data.get('title', 'Unknown')}
+Video Description: {video_data.get('description', 'No description available')}
+Segment Time: {segment['startingTimestamp']} - {segment['endingTimestamp']}
+
+Audio Transcription:
+{segment.get('transcription', 'No transcription available')}
+
+Visual Elements:
+{' | '.join(segment.get('frames', []))}
+
+Generate a concise, engaging description (2-3 sentences) that captures the essence of what happens in this video segment. Focus on the main actions, topics, or visual elements.
+"""
+        
+        response = openai_client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are an expert video content analyst. Generate concise, engaging descriptions for video segments based on transcription and visual elements."},
+                {"role": "user", "content": context}
+            ],
+            max_tokens=150,
+            temperature=0.7
+        )
+        
+        description = response.choices[0].message.content.strip()
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+        cost = calculate_cost(model_name, prompt_tokens, completion_tokens)
+        
+        return description, prompt_tokens, completion_tokens, cost
+        
+    except Exception as e:
+        print(f"Error generating segment description: {e}")
+        return f"Content from {segment['startingTimestamp']} to {segment['endingTimestamp']}", 0, 0, 0.0
+
+def generate_contextual_topics(segments, video_data, model_name):
+    """Generate contextual topics that span multiple segments"""
+    try:
+        # Group segments into larger topic clusters
+        topics = []
+        current_topic_segments = []
+        topic_duration = 120.0  # 2 minutes per topic on average
+        
+        for segment in segments:
+            current_topic_segments.append(segment)
+            
+            # Check if we should create a topic with null checking
+            try:
+                if len(current_topic_segments) >= 2:
+                    # Get start and end times with null checking
+                    start_time = current_topic_segments[0].get('startSeconds')
+                    end_time = current_topic_segments[-1].get('endSeconds')
+                    
+                    if start_time is not None and end_time is not None:
+                        duration_check = (float(end_time) - float(start_time)) >= topic_duration
+                    else:
+                        duration_check = False
+                else:
+                    duration_check = False
+                
+                # Create topic if duration threshold met or this is the last segment
+                if duration_check or segment == segments[-1]:
+                    # Generate topic for current segments
+                    topic_text = generate_topic_from_segments(current_topic_segments, video_data, model_name)
+                    
+                    topics.append({
+                        'startingTimestamp': current_topic_segments[0].get('startingTimestamp', '00:00:00'),
+                        'endingTimestamp': current_topic_segments[-1].get('endingTimestamp', '00:00:00'),
+                        'startSeconds': float(current_topic_segments[0].get('startSeconds', 0)),
+                        'endSeconds': float(current_topic_segments[-1].get('endSeconds', 0)),
+                        'topic': topic_text
+                    })
+                    
+                    # Reset for next topic
+                    current_topic_segments = []
+                    
+            except (ValueError, TypeError, AttributeError) as e:
+                print(f"Error processing topic segment: {e}")
+                continue
+        
+        return topics
+        
+    except Exception as e:
+        print(f"Error generating contextual topics: {e}")
+        return []
+
+def generate_topic_from_segments(segments, video_data, model_name):
+    """Generate a contextual topic from multiple segments"""
+    try:
+        # Combine segment descriptions
+        segment_descriptions = [seg.get('description', '') for seg in segments]
+        combined_descriptions = '\n'.join(segment_descriptions)
+        
+        context = f"""
+Video Title: {video_data.get('title', 'Unknown')}
+Time Range: {segments[0]['startingTimestamp']} - {segments[-1]['endingTimestamp']}
+
+Segment Descriptions:
+{combined_descriptions}
+
+Based on these segment descriptions, generate a concise, descriptive topic title (3-6 words) that captures the main theme or subject matter of this portion of the video.
+"""
+        
+        response = openai_client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are an expert content categorizer. Generate concise, descriptive topic titles that capture the essence of video content."},
+                {"role": "user", "content": context}
+            ],
+            max_tokens=50,
+            temperature=0.5
+        )
+        
+        topic = response.choices[0].message.content.strip()
+        return topic
+        
+    except Exception as e:
+        print(f"Error generating topic: {e}")
+        return f"Topic {segments[0]['startingTimestamp']}-{segments[-1]['endingTimestamp']}"
+
+def calculate_cost(model_name, prompt_tokens, completion_tokens):
+    """Calculate cost based on model pricing"""
+    pricing = {
+        'gpt-4.1-nano-2025-04-14': {'input': 0.00010/1000, 'output': 0.0004/1000},  # per 1K tokens (estimated)
+        'gpt-4o-mini-2024-07-18': {'input': 0.00015/1000, 'output': 0.0006/1000}  # per 1K tokens
+    }
+    
+    if model_name in pricing:
+        input_cost = prompt_tokens * pricing[model_name]['input']
+        output_cost = completion_tokens * pricing[model_name]['output']
+        return input_cost + output_cost
+    
+    return 0.0
+
+def log_token_usage(video_id, operation, model, prompt_tokens, completion_tokens, total_tokens, cost):
+    """Log token usage to database"""
+    try:
+        usage_data = {
+            'videoId': video_id,
+            'operation': operation,
+            'model': model,
+            'promptTokens': prompt_tokens,
+            'completionTokens': completion_tokens,
+            'totalTokens': total_tokens,
+            'cost': cost
+        }
+        
+        response = requests.post(
+            f"{NEXTJS_API_BASE}/token-usage?key={SECURITY_KEY}",
+            json=usage_data
+        )
+        
+        if response.status_code == 201:
+            print(f"📊 Token usage logged: {total_tokens} tokens, ${cost:.4f}")
+        else:
+            print(f"❌ Failed to log token usage: {response.status_code} - {response.text}")
+        
+    except Exception as e:
+        print(f"❌ Error logging token usage: {e}")
+
+@app.route('/api/video-segments/<video_id>', methods=['GET'])
+def get_video_segments(video_id):
+    """Get video segments by video ID"""
+    security_key = request.headers.get('X-Security-Key')
+    
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    try:
+        response = requests.get(
+            f"{NEXTJS_API_BASE}/video-segments?key={SECURITY_KEY}&videoId={video_id}"
+        )
+        
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            return jsonify({'error': 'Segments not found'}), 404
+            
+    except Exception as e:
+        print(f"Error fetching video segments: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/video-topics/<video_id>', methods=['GET'])
+def get_video_topics(video_id):
+    """Get video topics by video ID"""
+    security_key = request.headers.get('X-Security-Key')
+    
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    try:
+        response = requests.get(
+            f"{NEXTJS_API_BASE}/video-topics?key={SECURITY_KEY}&videoId={video_id}"
+        )
+        
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            return jsonify({'error': 'Topics not found'}), 404
+            
+    except Exception as e:
+        print(f"Error fetching video topics: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/frames/<path:filename>')
 def serve_frame(filename):

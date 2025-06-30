@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 const SECURITY_KEY = "123_RAGISACTIVATED_321"
 
 function validateSecurityKey(request: NextRequest) {
-  const securityKey = request.headers.get('x-security-key')
+  const { searchParams } = new URL(request.url)
+  const securityKey = searchParams.get('key') || request.headers.get('x-security-key')
   return securityKey === SECURITY_KEY
 }
 

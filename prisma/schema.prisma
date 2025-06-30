@@ -19,6 +19,7 @@ model Project {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   videos    Video[]
+  searches  SearchHistory[]
 
   @@map("projects")
 }
@@ -41,6 +42,10 @@ model Video {
   
   // Transcription data
   transcription VideoTranscription?
+  
+  // Summarization data
+  segments VideoSegment[]
+  topics   VideoTopic[]
   
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -143,4 +148,75 @@ model VideoTranscriptionSegment {
   videoTranscription VideoTranscription @relation(fields: [transcriptionId], references: [id], onDelete: Cascade)
 
   @@map("video_transcription_segments")
+}
+
+model VideoSegment {
+  id                String   @id @default(cuid())
+  videoId           String
+  segmentIndex      Int      // order of segment in the video
+  startingTimestamp String   // format: "HH.MM.SS"
+  endingTimestamp   String   // format: "HH.MM.SS"
+  startSeconds      Float    // start time in seconds for easier querying
+  endSeconds        Float    // end time in seconds for easier querying
+  description       String   @db.Text // AI-generated segment description
+  status            String   @default("pending") // pending, processing, completed, failed
+  model             String?  // GPT model used for generation
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  video             Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@map("video_segments")
+}
+
+model VideoTopic {
+  id                String   @id @default(cuid())
+  videoId           String
+  topicIndex        Int      // order of topic in the video
+  startingTimestamp String   // format: "HH.MM.SS"
+  endingTimestamp   String   // format: "HH.MM.SS"
+  startSeconds      Float    // start time in seconds for easier querying
+  endSeconds        Float    // end time in seconds for easier querying
+  topic             String   @db.Text // AI-generated contextual topic
+  status            String   @default("pending") // pending, processing, completed, failed
+  model             String?  // GPT model used for generation
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  video             Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@map("video_topics")
+}
+
+model TokenUsage {
+  id           String   @id @default(cuid())
+  videoId      String?  // optional, for video-specific operations
+  operation    String   // operation type: "summarization", "topic_generation", etc.
+  model        String   // GPT model used
+  promptTokens Int      // input tokens used
+  completionTokens Int  // output tokens generated
+  totalTokens  Int      // total tokens used
+  cost         Float?   // estimated cost in USD
+  requestData  String?  @db.LongText // JSON of request details
+  responseData String?  @db.LongText // JSON of response details
+  createdAt    DateTime @default(now())
+
+  @@map("token_usage")
+}
+
+model SearchHistory {
+  id         String   @id @default(cuid())
+  projectId  String   // project where search was performed
+  query      String   @db.Text // search query or image name
+  searchType String   // "text", "person", "frame"
+  results    String   @db.LongText // JSON array of search results
+  tokenUsage Int?     // tokens used for AI search
+  cost       Float?   // estimated cost in USD
+  model      String?  // AI model used for search
+  metadata   String?  @db.LongText // additional search metadata (similarity scores, etc.)
+  createdAt  DateTime @default(now())
+  
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("search_history")
 }

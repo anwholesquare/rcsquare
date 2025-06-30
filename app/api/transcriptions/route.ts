@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 const SECURITY_KEY = "123_RAGISACTIVATED_321"
 
 function validateSecurityKey(request: NextRequest) {
-  const securityKey = request.headers.get('x-security-key')
+  const { searchParams } = new URL(request.url)
+  const securityKey = searchParams.get('key') || request.headers.get('x-security-key')
   return securityKey === SECURITY_KEY
 }
 
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
 
     if (transcriptionId) {
       // Get specific transcription with segments
-      const transcription = await prisma.videoTranscription.findUnique({
+      const transcription = await (prisma as any).videoTranscription.findUnique({
         where: { id: transcriptionId },
         include: {
           segments: {
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     if (videoId) {
       // Get transcription for specific video
-      const transcription = await prisma.videoTranscription.findUnique({
+      const transcription = await (prisma as any).videoTranscription.findUnique({
         where: { videoId },
         include: {
           segments: {
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
     }
 
     // List all transcriptions
-    const transcriptions = await prisma.videoTranscription.findMany({
+    const transcriptions = await (prisma as any).videoTranscription.findMany({
       include: {
         video: {
           select: {
