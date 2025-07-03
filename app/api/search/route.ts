@@ -267,20 +267,53 @@ Only return matches with score >= 0.3. Return minimum 3 matches, maximum 5 match
   }
 }
 
+async function getVideoTitles(videoIds: string[]): Promise<Record<string, string>> {
+  if (videoIds.length === 0) return {}
+  
+  const videos = await prisma.video.findMany({
+    where: {
+      id: {
+        in: videoIds
+      }
+    },
+    select: {
+      id: true,
+      title: true
+    }
+  })
+  
+  const titleMap: Record<string, string> = {}
+  videos.forEach(video => {
+    titleMap[video.id] = video.title
+  })
+  
+  return titleMap
+}
+
 async function performPersonSearch(project: any, personImage: File): Promise<SearchResult[]> {
   try {
-    // Convert image to embedding using OpenAI CLIP or similar
-    // For now, we'll use Qdrant's vector search directly
+    const collectionName = `${project.name}_persons`
     
-    const collectionName = `${project.name}_person`
+    // Generate CLIP embedding using Flask backend
+    const formData = new FormData()
+    formData.append('image', personImage)
     
-    // Convert image to base64
-    const imageBuffer = await personImage.arrayBuffer()
-    const imageBase64 = Buffer.from(imageBuffer).toString('base64')
+    const embeddingResponse = await axios.post('http://localhost:3001/api/generate-clip-embedding', formData, {
+      headers: {
+        'X-Security-Key': '123_RAGISACTIVATED_321',
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+
+    if (!embeddingResponse.data.success) {
+      throw new Error('Failed to generate embedding: ' + embeddingResponse.data.error)
+    }
+
+    const embedding = embeddingResponse.data.embedding
     
-    // Search in Qdrant person collection
+    // Search in Qdrant persons collection using the embedding
     const searchResponse = await axios.post(`${QDRANT_BASE_URL}/collections/${collectionName}/points/search`, {
-      vector: imageBase64, // This would need proper embedding conversion
+      vector: embedding,
       limit: 20,
       with_payload: true
     }, {
@@ -298,17 +331,21 @@ async function performPersonSearch(project: any, personImage: File): Promise<Sea
     const limitedMatches = matches.slice(0, 5); // Max 5 results
     const finalMatches = limitedMatches.length < 3 && matches.length >= 3 ? matches.slice(0, 3) : limitedMatches; // Min 3 if available
     
+    // Extract unique video IDs and fetch their titles
+    const videoIds = [...new Set(finalMatches.map((match: any) => match.payload?.video_id).filter(Boolean) as string[])]
+    const videoTitles = await getVideoTitles(videoIds)
+    
     const results: SearchResult[] = finalMatches.map((match: any, index: number) => ({
       id: `person_${Date.now()}_${index}`,
       type: 'person' as const,
-      videoId: match.payload?.videoId || '',
-      videoTitle: match.payload?.videoTitle || 'Unknown Video',
+      videoId: match.payload?.video_id || '',
+      videoTitle: videoTitles[match.payload?.video_id] || 'Unknown Video',
       timestamp: match.payload?.timestamp || '',
       score: match.score || 0,
       content: `Person detected at ${match.payload?.timestamp}`,
-      imageUrl: match.payload?.imageUrl || '',
+      imageUrl: match.payload?.image_link || '',
       metadata: {
-        personUid: match.payload?.personUid,
+        personUid: match.payload?.person_uid,
         qdrantId: match.id
       }
     }))
@@ -325,13 +362,26 @@ async function performFrameSearch(project: any, frameImage: File): Promise<Searc
   try {
     const collectionName = `${project.name}_frames`
     
-    // Convert image to base64
-    const imageBuffer = await frameImage.arrayBuffer()
-    const imageBase64 = Buffer.from(imageBuffer).toString('base64')
+    // Generate CLIP embedding using Flask backend
+    const formData = new FormData()
+    formData.append('image', frameImage)
     
-    // Search in Qdrant frames collection
+    const embeddingResponse = await axios.post('http://localhost:3001/api/generate-clip-embedding', formData, {
+      headers: {
+        'X-Security-Key': '123_RAGISACTIVATED_321',
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+
+    if (!embeddingResponse.data.success) {
+      throw new Error('Failed to generate embedding: ' + embeddingResponse.data.error)
+    }
+
+    const embedding = embeddingResponse.data.embedding
+    
+    // Search in Qdrant frames collection using the embedding
     const searchResponse = await axios.post(`${QDRANT_BASE_URL}/collections/${collectionName}/points/search`, {
-      vector: imageBase64, // This would need proper embedding conversion
+      vector: embedding,
       limit: 20,
       with_payload: true
     }, {
@@ -349,15 +399,19 @@ async function performFrameSearch(project: any, frameImage: File): Promise<Searc
     const limitedMatches = matches.slice(0, 5); // Max 5 results
     const finalMatches = limitedMatches.length < 3 && matches.length >= 3 ? matches.slice(0, 3) : limitedMatches; // Min 3 if available
     
+    // Extract unique video IDs and fetch their titles
+    const videoIds = [...new Set(finalMatches.map((match: any) => match.payload?.video_id).filter(Boolean) as string[])]
+    const videoTitles = await getVideoTitles(videoIds)
+    
     const results: SearchResult[] = finalMatches.map((match: any, index: number) => ({
       id: `frame_${Date.now()}_${index}`,
       type: 'frame' as const,
-      videoId: match.payload?.videoId || '',
-      videoTitle: match.payload?.videoTitle || 'Unknown Video',
+      videoId: match.payload?.video_id || '',
+      videoTitle: videoTitles[match.payload?.video_id] || 'Unknown Video',
       timestamp: match.payload?.timestamp || '',
       score: match.score || 0,
       content: `Similar frame found at ${match.payload?.timestamp}`,
-      imageUrl: match.payload?.imageUrl || '',
+      imageUrl: match.payload?.image_link || '',
       metadata: {
         qdrantId: match.id,
         frameIndex: match.payload?.frameIndex

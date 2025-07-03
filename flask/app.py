@@ -2096,6 +2096,53 @@ def serve_face(filename):
     except Exception as e:
         return jsonify({'error': f'Failed to serve face: {str(e)}'}), 500
 
+@app.route('/api/generate-clip-embedding', methods=['POST'])
+def generate_clip_embedding_endpoint():
+    """Generate CLIP embedding for an uploaded image"""
+    security_key = request.headers.get('X-Security-Key')
+    
+    if security_key != SECURITY_KEY:
+        return jsonify({'error': 'Invalid security key'}), 401
+    
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided'}), 400
+    
+    file = request.files['image']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    try:
+        # Load AI models if not already loaded
+        if not load_ai_models():
+            return jsonify({'error': 'AI models not available'}), 500
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+            file.save(temp_file.name)
+            temp_path = temp_file.name
+        
+        try:
+            # Generate CLIP embedding
+            embedding = generate_clip_embedding(temp_path)
+            
+            if embedding is None:
+                return jsonify({'error': 'Failed to generate embedding'}), 500
+            
+            return jsonify({
+                'success': True,
+                'embedding': embedding,
+                'embedding_size': len(embedding)
+            })
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to generate embedding: {str(e)}'}), 500
+
 # This allows you to run the app directly with `python app.py`
 if __name__ == '__main__':
     print("\n" + "=" * 60)

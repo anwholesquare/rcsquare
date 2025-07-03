@@ -1010,11 +1010,11 @@ export default function Home() {
             fetchSearchHistory() // Fetch search history when switching to searches
           }
         }} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="upload">Upload</TabsTrigger>
-            <TabsTrigger value="library">Library</TabsTrigger>
-            <TabsTrigger value="searches">Searches</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
+            <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
+            <TabsTrigger value="upload" className="text-xs sm:text-sm">Upload</TabsTrigger>
+            <TabsTrigger value="library" className="text-xs sm:text-sm">Library</TabsTrigger>
+            <TabsTrigger value="searches" className="text-xs sm:text-sm">Searches</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -1094,7 +1094,7 @@ export default function Home() {
 
             {/* Interactive Content Grid */}
             <div className="grid gap-4 lg:grid-cols-7">
-              <Card className="lg:col-span-4 flex flex-col h-[600px]">
+              <Card className="lg:col-span-4 flex flex-col h-[400px] sm:h-[500px] lg:h-[600px]">
                 <CardHeader className="flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1103,10 +1103,10 @@ export default function Home() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Input
-                        placeholder="Search activity..."
+                        placeholder="Search..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-32 sm:w-40"
+                        className="w-24 sm:w-32 md:w-40"
                       />
                       <Button 
                         variant="outline" 
@@ -1114,6 +1114,7 @@ export default function Home() {
                         onClick={() => setActivityFilter(activityFilter === 'all' ? 'uploads' : 
                           activityFilter === 'uploads' ? 'analysis' : 
                           activityFilter === 'analysis' ? 'transcription' : 'all')}
+                        className="px-2 sm:px-3"
                       >
                         <Filter className="h-4 w-4" />
                       </Button>
@@ -1121,12 +1122,12 @@ export default function Home() {
                   </div>
                   
                   {/* Filter Pills */}
-                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <div className="flex flex-wrap items-center gap-1 sm:gap-2 mt-3">
                     <Button
                       variant={activityFilter === 'all' ? "default" : "outline"}
                       size="sm"
                       onClick={() => setActivityFilter('all')}
-                      className="h-7 text-xs"
+                      className="h-6 sm:h-7 text-xs px-2 sm:px-3"
                     >
                       All
                     </Button>
@@ -1134,37 +1135,41 @@ export default function Home() {
                       variant={activityFilter === 'uploads' ? "default" : "outline"}
                       size="sm"
                       onClick={() => setActivityFilter('uploads')}
-                      className="h-7 text-xs"
+                      className="h-6 sm:h-7 text-xs px-2 sm:px-3"
                     >
                       <Upload className="h-3 w-3 mr-1" />
-                      Uploads
+                      <span className="hidden sm:inline">Uploads</span>
+                      <span className="sm:hidden">Up</span>
                     </Button>
                     <Button
                       variant={activityFilter === 'analysis' ? "default" : "outline"}
                       size="sm"
                       onClick={() => setActivityFilter('analysis')}
-                      className="h-7 text-xs"
+                      className="h-6 sm:h-7 text-xs px-2 sm:px-3"
                     >
                       <Camera className="h-3 w-3 mr-1" />
-                      Analysis
+                      <span className="hidden sm:inline">Analysis</span>
+                      <span className="sm:hidden">An</span>
                     </Button>
                     <Button
                       variant={activityFilter === 'transcription' ? "default" : "outline"}
                       size="sm"
                       onClick={() => setActivityFilter('transcription')}
-                      className="h-7 text-xs"
+                      className="h-6 sm:h-7 text-xs px-2 sm:px-3"
                     >
                       <MessageSquare className="h-3 w-3 mr-1" />
-                      Transcription
+                      <span className="hidden sm:inline">Transcription</span>
+                      <span className="sm:hidden">Tr</span>
                     </Button>
                     <Button
                       variant={activityFilter === 'summarization' ? "default" : "outline"}
                       size="sm"
                       onClick={() => setActivityFilter('summarization')}
-                      className="h-7 text-xs"
+                      className="h-6 sm:h-7 text-xs px-2 sm:px-3"
                     >
                       <FileText className="h-3 w-3 mr-1" />
-                      Summarization
+                      <span className="hidden sm:inline">Summarization</span>
+                      <span className="sm:hidden">Su</span>
                     </Button>
                   </div>
                 </CardHeader>
@@ -1514,7 +1519,7 @@ export default function Home() {
           <TabsContent value="searches" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Globe className="h-5 w-5" />
@@ -1524,26 +1529,30 @@ export default function Home() {
                       View your AI-powered search results and history
                     </CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
                     <Button 
                       variant="outline" 
                       size="sm" 
                       onClick={fetchSearchHistory}
                       disabled={searchHistoryLoading}
+                      className="flex-1 sm:flex-none"
                     >
                       {searchHistoryLoading ? (
                         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <RefreshCw className="mr-2 h-4 w-4" />
                       )}
-                      Refresh
+                      <span className="hidden sm:inline">Refresh</span>
+                      <span className="sm:hidden">Ref</span>
                     </Button>
                     <Button 
                       size="sm"
                       onClick={() => window.open(`/q/${currentProject}`, '_blank')}
+                      className="flex-1 sm:flex-none"
                     >
                       <Plus className="mr-2 h-4 w-4" />
-                      New Search
+                      <span className="hidden sm:inline">New Search</span>
+                      <span className="sm:hidden">Search</span>
                     </Button>
                   </div>
                 </div>
@@ -1569,8 +1578,8 @@ export default function Home() {
                   <div className="space-y-4">
                     {searchHistory.map((search) => (
                       <div key={search.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-start gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-3 gap-2">
+                          <div className="flex items-start gap-3 flex-1">
                             <div className="flex-shrink-0 mt-1">
                               <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
                                 {search.searchType === 'text' && <MessageSquare className="h-4 w-4" />}
@@ -1578,44 +1587,44 @@ export default function Home() {
                                 {search.searchType === 'frame' && <Camera className="h-4 w-4" />}
                               </div>
                             </div>
-                            <div className="flex-1">
-                              <h4 className="font-medium mb-1">{search.searchType === 'text' ? search.query : `${search.searchType} search`}</h4>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium mb-1 truncate">{search.searchType === 'text' ? search.query : `${search.searchType} search`}</h4>
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                 <Badge variant="outline" className="text-xs">
                                   {search.searchType}
                                 </Badge>
-                                <span>•</span>
+                                <span className="hidden sm:inline">•</span>
                                 <span>{search.results.length} results</span>
                                 {search.tokenUsage && (
                                   <>
-                                    <span>•</span>
-                                    <span>{search.tokenUsage} tokens</span>
+                                    <span className="hidden sm:inline">•</span>
+                                    <span className="text-xs">{search.tokenUsage} tokens</span>
                                   </>
                                 )}
                                 {search.cost && (
                                   <>
-                                    <span>•</span>
-                                    <span>${search.cost.toFixed(4)}</span>
+                                    <span className="hidden sm:inline">•</span>
+                                    <span className="text-xs">${search.cost.toFixed(4)}</span>
                                   </>
                                 )}
                               </div>
                             </div>
                           </div>
-                          <div className="text-right text-sm text-muted-foreground">
+                          <div className="text-sm text-muted-foreground sm:text-right flex-shrink-0">
                             {getTimeAgo(search.createdAt)}
                           </div>
                         </div>
                         
                         {search.results.length > 0 && (
-                          <div className="border-t pt-3">
-                            <div className="flex items-center justify-between mb-2">
+                                                      <div className="border-t pt-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-2">
                               <span className="text-xs font-medium text-muted-foreground">
                                 Search Results Preview
                               </span>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="text-xs h-6"
+                                className="text-xs h-6 self-start sm:self-auto"
                                 onClick={() => {
                                   // Create a new search page with the historical results
                                   const searchParams = new URLSearchParams({
@@ -1627,12 +1636,13 @@ export default function Home() {
                                 }}
                               >
                                 <Eye className="mr-1 h-3 w-3" />
-                                View Full Results
+                                <span className="hidden sm:inline">View Full Results</span>
+                                <span className="sm:hidden">View All</span>
                               </Button>
                             </div>
-                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                               {search.results.slice(0, 6).map((result) => (
-                                <div key={result.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+                                <div key={result.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer min-h-[44px]"
                                                       onClick={() => {
                                         const videoUrl = `http://localhost:3001/api/video/${result.videoId.substring(0, 8)}?project=${search.projectName}`;
                                         if (result.timestamp) {
@@ -1645,17 +1655,17 @@ export default function Home() {
                                         }
                                       }}>
                                   <div className="flex-shrink-0">
-                                    <Badge variant="secondary" className="text-xs">
+                                    <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
                                       {(result.score * 100).toFixed(0)}%
                                     </Badge>
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium truncate">{result.videoTitle}</p>
+                                    <p className="text-xs font-medium truncate leading-tight">{result.videoTitle}</p>
                                     {result.timestamp && (
-                                      <p className="text-xs text-muted-foreground">{result.timestamp}</p>
+                                      <p className="text-xs text-muted-foreground leading-tight">{result.timestamp}</p>
                                     )}
                                   </div>
-                                  <Eye className="h-3 w-3 text-muted-foreground" />
+                                  <Eye className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                                 </div>
                               ))}
                             </div>
