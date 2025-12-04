@@ -113,56 +113,56 @@ export function ProjectValidation({ onValidation }: ProjectValidationProps) {
 
           {/* Main Heading */}
           <div className="mb-12">
-            <h1 className="text-5xl font-bold text-foreground mb-4 leading-tight">
+            <h1 className="text-3xl font-bold text-foreground mb-4 leading-tight">
               Unlock the Power of 
               <span className="text-primary block bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
                 Intelligent Video Search
               </span>
             </h1>
-            <p className="text-xl text-muted-foreground leading-relaxed">
+            <p className="text-l text-muted-foreground leading-relaxed">
               Transform how you discover, manage, and interact with your video content.
             </p>
           </div>
 
           {/* Feature List */}
-          <div className="space-y-8">
-            <div className="flex items-start gap-5 group cursor-default">
-              <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
-                <Sparkles className="h-7 w-7 text-primary" />
+          <div className="space-y-6">
+            <div className="flex items-start gap-4 group cursor-default">
+              <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
+                <Sparkles className="h-5 w-5 text-primary" />
               </div>
-              <div className="space-y-3">
-                <h3 className="font-bold text-xl text-foreground">
+              <div className="space-y-1.5">
+                <h3 className="font-semibold text-base text-foreground">
                   Add intelligent insights for search to your videos
                 </h3>
-                <p className="text-muted-foreground leading-relaxed">
+                <p className="text-sm text-muted-foreground leading-relaxed">
                   Transform your video library with AI-powered search capabilities that understand content, not just metadata.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-start gap-5 group cursor-default">
-              <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
-                <Search className="h-7 w-7 text-primary" />
+            <div className="flex items-start gap-4 group cursor-default">
+              <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
+                <Search className="h-5 w-5 text-primary" />
               </div>
-              <div className="space-y-3">
-                <h3 className="font-bold text-xl text-foreground">
+              <div className="space-y-1.5">
+                <h3 className="font-semibold text-base text-foreground">
                   Better search inside your video clip
                 </h3>
-                <p className="text-muted-foreground leading-relaxed">
+                <p className="text-sm text-muted-foreground leading-relaxed">
                   Find exactly what you're looking for within your videos using natural language queries and smart indexing.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-start gap-5 group cursor-default">
-              <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
-                <Clock className="h-7 w-7 text-primary" />
+            <div className="flex items-start gap-4 group cursor-default">
+              <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
+                <Clock className="h-5 w-5 text-primary" />
               </div>
-              <div className="space-y-3">
-                <h3 className="font-bold text-xl text-foreground">
+              <div className="space-y-1.5">
+                <h3 className="font-semibold text-base text-foreground">
                   Search the perfect moments of the video
                 </h3>
-                <p className="text-muted-foreground leading-relaxed">
+                <p className="text-sm text-muted-foreground leading-relaxed">
                   Jump directly to the exact timestamp you need. No more scrubbing through hours of content.
                 </p>
               </div>

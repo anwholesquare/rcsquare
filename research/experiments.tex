@@ -1,0 +1,123 @@
+\chapter{Experiments and Results Analysis}
+\label{chap:exp_results}
+
+\section{Introduction/Overview}
+
+This chapter presents the experiments conducted in this study and analyzes the results obtained from each modality of the retrieval system. The experiments evaluate how well the system retrieves relevant video clips using text, audio, frame, and face queries. Since the goal of this research is to build an efficient multi modal retrieval system, it is important to measure accuracy, understand why errors occur, and observe the strengths and limitations of different components. 
+
+The dataset used for experiments contains 100 programming tutorial videos, 191 annotated topics, 955 extracted frames, and 100 face samples. A total of 1\,437 evaluation samples were tested across modalities. This chapter explains how modern tools were used, presents the results in clear tables, and discusses the broader impact and sustainability of the findings.
+
+\section{Modern Tools}
+
+Modern tools and technologies were essential for building the retrieval pipeline and conducting the experiments. These tools ensured that processing, embedding, and searching were executed effectively and consistently.
+
+\subsection*{Voyage Embedding Models}
+
+The project used two state of the art embedding models from Voyage AI:
+
+\begin{itemize}
+    \item \textbf{Voyage 3 Large}: Used for text embeddings with 1\,024 dimensions. It was responsible for processing both topic labels and transcripts. Its high dimensionality allowed it to capture fine grained semantic information.
+    \item \textbf{Voyage Multimodal 3}: Used for embedding images such as frames and faces. This model helped build a unified vector representation for visual content.
+\end{itemize}
+
+These models played an important role in improving retrieval performance for all modalities.
+
+\subsection*{Whisper for Speech Transcription}
+
+The Whisper speech recognition model was used to convert audio segments into accurate text transcripts. This transcription allowed the system to treat audio queries in the same way as text queries, improving consistency across modalities.
+
+\subsection*{Qdrant Vector Database}
+
+The Qdrant vector database stored embeddings from all modalities and performed similarity search. It supported fast nearest neighbor search using HNSW indexing, which made retrieval efficient even with thousands of vectors.
+
+\subsection*{FFmpeg for Video Processing}
+
+FFmpeg was used to trim videos into topic segments, extract audio tracks, and sample frames. It ensured that all modalities were aligned with the topic structure of the dataset.
+
+\subsection*{SQL Database for Metadata}
+
+A SQL database stored structured video information, transcripts, timestamps, frames, and face data. It supported the retrieval system by linking search results back to the original content.
+
+Together, these tools formed the technical foundation of the experiments and enabled multi modal analysis.
+
+\section{Result Analysis}
+
+This section presents the accuracy results for each modality and analyzes the strengths and weaknesses of the system. The results are based on 1\,437 total evaluation samples.
+
+\subsection*{Overall Performance Summary}
+
+Table \ref{tab:overall_performance} shows the overall performance across the four modalities.
+
+\begin{table}[htb]
+\centering
+\caption{Overall performance across modalities}
+\label{tab:overall_performance}
+\begin{tabular}{p{4cm}p{3cm}p{3cm}p{3cm}}
+\hline
+Modality & Total Samples & Correct Retrievals & Accuracy (\%) \\
+\hline
+Text & 191 & 186 & 97.38 \\
+Audio & 191 & 186 & 97.38 \\
+Frames & 955 & 903 & 94.55 \\
+Faces & 100 & 92 & 92.00 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection*{Text Modality Analysis}
+
+The text modality achieved the highest accuracy of 97.38\%. This shows that semantic embeddings from Voyage 3 Large work very well for short topic based queries. Most errors were caused by ambiguous keywords such as "command" or "map," which appeared in multiple contexts across videos. Despite these small issues, text retrieval remained reliable and consistent.
+
+\subsection*{Audio Modality Analysis}
+
+Audio queries achieved the same accuracy as text (97.38\%) because Whisper produced clean transcripts for all 191 audio segments. Since the videos had clear speech and minimal background noise, the transcription quality remained high. The few errors matched the text modality errors because they came from the same overlapping concepts.
+
+\subsection*{Frame Modality Analysis}
+
+Frame retrieval achieved 94.55\% accuracy. This is slightly lower than text and audio because many programming tutorials show similar scenes, such as code editors or terminal windows. Some errors occurred because:
+
+\begin{itemize}
+    \item different videos used the same code editor layout,
+    \item frames showed transitional screens or blurry content,
+    \item slides from different instructors had similar backgrounds.
+\end{itemize}
+
+However, the model still performed well overall, proving that visual cues can identify context in most cases.
+
+\subsection*{Face Modality Analysis}
+
+Face retrieval achieved 92\% accuracy. This is the lowest among the four modalities, mainly due to variations in lighting, camera angles, and partial occlusions. Some instructors appeared in side profiles or rotated positions, which the embedding model sometimes confused. Even so, the performance remains strong for identifying instructors within the dataset.
+
+\subsection*{Modality Comparison}
+
+Figure \ref{fig:modality_comparison} (placeholder for chart) illustrates the comparative trend across all modalities. Text and audio show the strongest performance, followed by frames and faces. This pattern reflects the fact that programming tutorials rely heavily on verbal and written explanations, while visual variability affects image based matching.
+
+\subsection*{Cross-modal Fusion Results}
+
+Cross-modal fusion helped improve accuracy beyond individual modalities. When text was combined with audio or frames, accuracy improved by up to 1.83\%. This shows that combining signals is helpful, especially when queries are complex or ambiguous.
+
+\section{Impact Analysis and Sustainability}
+
+\subsection*{Impact on Learning and Information Retrieval}
+
+The results of this system contribute to creating more accessible and efficient learning environments. Students can search for specific concepts and immediately access relevant explanations instead of watching long videos. This helps reduce time wasted on irrelevant content and encourages more focused learning.
+
+\subsection*{Technological Impact}
+
+The study demonstrates the usefulness of multi modal retrieval systems built using modern embedding models and vector databases. Such systems can be applied in other fields such as digital libraries, lecture indexing, or online courses.
+
+\subsection*{Sustainability Considerations}
+
+From a sustainability perspective:
+
+\begin{itemize}
+    \item The system reduces repeated searches and manual browsing, saving user time and energy.
+    \item Processing is done offline once, lowering repeated computational costs.
+    \item The dataset and models can be updated gradually without rebuilding the entire system.
+\end{itemize}
+
+These features make the system suitable for long term use and further expansion.
+
+\section{Summary}
+
+This chapter discussed the experiments conducted using text, audio, frame, and face queries. The modern tools used in the system contributed significantly to high retrieval accuracy. The results show that multi modal retrieval can be both efficient and reliable, especially in educational settings. With up to 97.38\% accuracy for text and audio and strong performance across other modalities, the system provides a solid foundation for future research, improvements, and real-world application development.

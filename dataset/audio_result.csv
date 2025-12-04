@@ -1,0 +1,192 @@
+input_text,correct_video_id,result
+basic function,"1, 0:00:00-0:01:45",1
+number related function,"1, 0:01:45-0:12:25",1
+while loop,"1, 0:12:30-0:17:50",1
+numeric datatype,"2, 0:00:25-0:01:54",1
+boolean datatype,"2, 0:01:58-0:02:45",1
+string,"2, 0:02:48-0:07:39",1
+list,"2, 0:07:41-0:11:20",1
+tuple,"2, 0:11:23-0:12:44",1
+sets,"2, 0:12:45-0:16:49",1
+dictionaries,"2, 0:16:50-0:21:39",1
+variable,"3, 0:00:34-0:01:29",1
+datatype,"3, 0:01:30-0:03:55",1
+logic statements,"3, 0:03:56-0:04:49",1
+for loop,"3, 0:04:50-0:05:49",1
+while loop,"3, 0:05:50-0:06:59",1
+function,"3, 0:07:00-0:07:59",1
+pass,"3, 0:08:05-0:09:02",1
+try accept,"3, 0:09:05-0:10:20",1
+variable,"4, 0:00:35-0:01:32",1
+basic data types,"4, 0:01:33-0:02:59",1
+type annotations,"4, 0:03:00-0:04:55",1
+constants,"4, 0:04:57-0:06:12",1
+function,"4, 0:06:14-0:09:40",1
+classes,"5, 0:00:00-0:00:25",1
+initialisers,"5, 0:00:25-0:02:19",1
+methods,"5, 0:02:19-0:05:13",1
+dunder methods,"5, 0:05:13-0:07:55",1
+importing html in python,"6, 0:00:25-0:01:35",1
+FindAll,"6, 0:01:37-0:12:00",1
+web scrapping introduction,"7, 0:00:00-0:00:30",1
+inspecting web pages with html in python,"7, 0:00:37-0:05:50",1
+list,"8, 0:00:49-0:09:40",1
+set,"8, 0:09:42-0:12:35",1
+tuple,"8, 0:12:40-0:14:20",1
+manually exponential calculation,"9, 0:00:25-0:00:29",1
+function,"9, 0:00:30-0:01:00",1
+built in exponential function,"9, 0:01:02-0:02:16",1
+command,"9, 0:02:17-0:02:40",0
+built in functions,"9, 0:02:41-0:10:35",1
+save python program,"10, 0:00:10-0:03:34",1
+run python program,"10, 0:03:35-0:08:45",1
+forward slicing,"11, 0:00:05-0:06:30",1
+backward slicing,"11, 0:06:35-0:07:30",1
+blank slicing,"11, 0:07:31-0:11:20",1
+if statement,"12, 0:01:26-0:06:50",1
+else statement,"12, 0:06:55-0:13:15",1
+elif statement,"13, 0:00:50-0:05:28",1
+nested if statement,"13, 0:05:30-0:11:32",1
+comparison operators,"14, 0:00:40-0:01:19",1
+logical operator,"14, 0:01:20-0:04:30",1
+is and in,"14, 0:04:35-0:10:05",1
+default parameters,"15, 0:00:30-0:06:50",1
+multiple arguments,"15, 0:07:00-0:11:30",1
+classes,"16, 0:00:10-0:11:50",1
+self,"16, 0:11:55-0:14:30",1
+class constructor,"17, 0:00:30-0:03:28",1
+class destructor,"17, 0:03:30-0:11:00",1
+inheritance,"18, 0:00:25-0:01:19",1
+superclass,"18, 0:01:20-0:01:23",1
+subclass,"18, 0:01:24-0:01:29",1
+membership operator,"19, 0:00:40-0:07:50",1
+print function,"20, 0:00:15-0:01:20",1
+string concatenation,"20, 0:01:23-0:08:15",1
+type casting,"21, 0:01:35-0:13:30",1
+type conversion,"21, 0:13:50-0:14:50",1
+filter function,"22, 0:00:00-0:03:17",1
+map,"22, 0:03:18-0:05:55",0
+while loop,"23, 0:01:05-0:07:49",1
+for loop,"23, 0:07:50-0:10:05",1
+basic math in python,"24, 0:01:43-0:08:25",1
+mathematical operations,"24, 0:08:26-0:09:43",1
+boolean values,"25, 0:00:25-0:02:22",1
+comparison operators,"25, 0:02:25-0:08:07",1
+logical operator,"25, 0:08:10-0:11:00",1
+creating variables,"26, 0:01:00-0:01:20",1
+console input,"26, 0:01:22-0:06:00",1
+increment operator,"27, 0:00:33-0:03:35",1
+decrement operator,"27, 0:03:37-0:07:38",1
+modulus operators,"28, 0:00:50-0:02:40",1
+short-hand operator,"28, 0:02:43-0:05:05",1
+if statement,"29, 0:00:24-0:05:23",1
+else statement,"29, 0:05:25-0:08:20",1
+if else,"30, 0:00:17-0:02:30",1
+if elseif,"30, 0:02:32-0:05:28",1
+comparison operators,"31, 0:00:55-0:06:23",1
+logical operator,"31, 0:06:24-0:13:10",1
+two dimensional array,"32, 0:00:50-0:04:45",1
+access element in array,"32, 0:04:47-0:08:47",1
+array introduction,"33, 0:00:00-0:02:00",1
+create array,"33, 0:02:01-0:06:30",1
+function type,"34, 0:01:27-0:02:03",1
+create function,"34, 0:02:05-0:07:00",1
+pass parameters,"35, 0:00:45-0:04:30",1
+return values,"35, 0:04:31-0:06:36",1
+global and local scope,"36, 0:00:32-0:01:23",1
+block of code,"36, 0:01:25-0:08:15",1
+break statement,"37, 0:00:15-0:00:40",1
+example of break statement,"37, 0:00:41-0:06:00",1
+new operator,"38, 0:01:15-0:03:30",1
+delete operator,"38, 0:03:36-0:04:50",1
+recursive function,"39, 0:00:06-0:00:35",1
+recursion,"39, 0:00:36-0:05:10",0
+static variables,"40, 0:00:15-0:03:20",1
+static members,"40, 0:03:24-0:09:40",1
+inheritance,"41, 0:00:15-0:01:07",1
+access control,"41, 0:01:08-0:03:05",1
+overloading increment,"42, 0:00:30-0:04:00",1
+overloading decrement,"42, 0:04:01-0:09:25",1
+overloading new operator,"43, 0:01:35-0:08:40",1
+overloading delete operator,"43, 0:08:42-0:13:00",1
+stream insertion,"44, 0:00:30-0:05:55",1
+stream extraction,"44, 0:05:56-0:08:15",1
+set format flag,"45, 0:01:05-0:06:27",1
+unset format flag,"45, 0:06:28-0:08:30",1
+reading boolean values,"46, 0:00:10-0:03:45",1
+set boolalpha flag,"46, 0:03:46-0:04:32",1
+identifiers,"47, 0:01:17-0:05:12",1
+keywords,"47, 0:05:14-0:09:20",1
+bool data type,"48, 0:03:05-0:07:35",1
+void data type,"48, 0:07:36-0:12:15",1
+input output introduction,"49, 0:01:00-0:12:59",1
+input output execution,"49, 0:13:00-0:18:10",1
+logical operator,"50, 0:00:40-0:09:15",1
+bitwise operator,"50, 0:09:17-0:17:24",1
+preprocessor,"51, 0:05:08-0:06:19",1
+print function,"52, 0:02:00-0:03:53",1
+data type float and double,"53, 0:02:59-0:07:25",1
+and operator,"54, 0:09:54-0:12:05",1
+if else statement,"55, 0:04:24-0:06:32",1
+do while loop,"56, 0:08:59-0:10:52",1
+Array index,"57, 0:03:23-0:05:32",1
+take double input,"58, 0:03:18-0:05:04",1
+addition operator,"59, 0:01:14-0:05:00",1
+sum of the number 1 to 100,"60, 0:04:32-0:07:56",1
+recursion,"61, 0:00:18-0:01:52",1
+function,"62, 0:03:32-0:05:11",1
+pointer,"63, 0:00:28-0:01:37",1
+Array index,"64, 0:00:58-0:03:07",1
+else if,"65, 0:01:12-0:03:51",1
+typedef,"66, 0:00:42-0:02:50",1
+datatype,"67, 0:03:48-0:04:56",1
+string,"68, 0:01:48-0:04:55",1
+ternary operator,"69, 0:11:09-0:15:28",0
+what is keyword,"70, 0:02:20-0:03:13",1
+integer,"71, 0:07:36-0:14:33",1
+input function in C,"72, 0:09:27-0:11:40",1
+memory representation,"73, 0:02:06-0:03:47",1
+add 2 matrix,"74, 0:01:42-0:04:29",1
+initializing string,"75, 0:11:30-0:15:38",1
+class structure,"76, 0:01:37-0:01:59",1
+strings,"77, 0:00:20-0:01:28",1
+public access modifier,"78, 0:00:20-0:01:06",1
+block styles,"79, 0:01:52-0:02:47",1
+system error,"80, 0:00:27-0:01:06",1
+variable,"81, 0:00:18-0:00:58",1
+memory,"82, 0:00:38-0:01:34",1
+constants,"83, 0:04:00-0:05:09",1
+integer,"84, 0:00:20-0:01:07",1
+initializing int variables,"85, 0:01:53-0:02:31",1
+type conversion,"86, 0:03:45-0:06:36",1
+double datatype,"87, 0:00:31-0:01:32",1
+character datatype,"88, 0:01:20-0:06:36",1
+the boolean datatype,"89, 0:00:16-0:04:42",1
+primitive types,"90, 0:00:18-0:01:13",1
+relational operators,"91, 0:00:19-0:02:54",1
+string in java,"92, 0:00:16-0:02:32",1
+multiple object,"93, 0:02:02-0:07:03",1
+getter setter,"94, 0:01:03-0:01:45",1
+variable constants and final method,"95, 0:00:20-0:03:49",1
+for loop,"96, 0:00:02-0:04:26",1
+creating a timer,"97, 0:00:38-0:01:39",1
+array list,"98, 0:00:00-0:05:17",1
+autoboxing,"99, 0:02:34-0:03:29",1
+getter method,"100, 0:00:00-0:05:30",1
+syntax of a function,"51, 0:07:55-0:11:55",1
+change value of variable,"52, 0:03:54-0:05:26",1
+datatype int,"53, 0:00:03-0:02:59",1
+or operator,"54, 0:12:10-0:12:32",1
+else if,"55, 0:06:33-0:10:26",1
+while,"56, 0:00:32-0:04:36",1
+index out of bound,"57, 0:11:33-0:12:04",1
+multiple input,"58, 0:05:31-0:06:16",1
+division operator,"59, 0:05:07-0:07:05",1
+remainder operator,"59, 0:07:08-0:07:59",1
+sum of even numbers,"60, 0:08:00-0:09:34",1
+what is operator,"69, 0:11:09-0:15:28",0
+character,"71, 0:14:34-0:16:40",1
+float,"71, 0:16:44-0:19:34",1
+Datatype,"81, 0:00:59-0:02:00",1
+character,"84, 0:01:08-0:01:50",1
+string,"84, 0:01:51-0:02:10",1
